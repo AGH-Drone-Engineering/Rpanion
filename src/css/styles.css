@@ -1,1 +1,3 @@
-
+.eth-accordion .accordion-button::after {
+  margin-left: 0.5rem !important;
+}
