@@ -307,6 +307,9 @@ class mavManager {
   }
 
   sendOnboardComputerStatus (status) {
+    if (!common.OnboardComputerStatus) {
+      return
+    }
     // Send ONBOARD_COMPUTER_STATUS with the companion's CPU, RAM, temperature and disk use.
     // Array slots we have no value for must hold the MAVLink "unused" value, not 0
     const fill = (values, length, unused) => Array.from({ length }, (_, i) => values[i] ?? unused)

@@ -36,12 +36,13 @@ const io = require('socket.io')(http, { cookie: false })
 const { check, validationResult } = require('express-validator')
 const crypto = require('crypto');
 
-// set up rate limiter: maximum of fifty requests per minute
+// set up rate limiter: 120 requests per minute with JSON response
 const RateLimit = require('express-rate-limit')
 const pppConnection = require('./pppConnection.js')
 const limiter = RateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 50
+  max: 120,
+  message: { error: 'Too many requests, please try again later.' }
 })
 
 // Generate a new key if not provided
@@ -545,7 +546,7 @@ function authenticateToken(req, res, next) {
     if (isSocketIO) {
       return next(new Error(message))
     }
-    return res.status(statusCode).json({ message })
+    return res.status(statusCode).json({ error: message, message })
   }
 
   // Extract token

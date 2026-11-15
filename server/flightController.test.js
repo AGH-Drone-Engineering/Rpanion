@@ -38,7 +38,7 @@ describe('Flight Controller Functions', function () {
       assert.equal(enableDSRequest, false)
       assert.equal(enableTimesync, false)
       assert.equal(enableComputerStatus, false)
-      assert.equal(active, false)
+      assert.equal(tlogging, false)
       assert.equal(udpInputPort, 9000)
       assert.equal(selInputType, 'UART')
       assert.equal(inputTypes.length, 2)

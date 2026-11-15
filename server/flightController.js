@@ -451,7 +451,10 @@ class FCDetails {
       this.m.eventEmitter.on('gotMessage', (packet, data) => {
         // got valid message - send on to attached classes
         this.previousConnection = true
-        if (packet.header.msgid === standard.GlobalPositionInt.MSG_ID) {
+        const globalPosMsgId = (common && common.GlobalPositionInt && common.GlobalPositionInt.MSG_ID) ||
+          (standard && standard.GlobalPositionInt && standard.GlobalPositionInt.MSG_ID) ||
+          33
+        if (packet.header.msgid === globalPosMsgId) {
             // MAVLink sends lat/lon as int * 1E7, alt as mm, heading as cdeg
             if (this.vehiclePosition) {
                 this.vehiclePosition.lat = data.lat / 10000000
