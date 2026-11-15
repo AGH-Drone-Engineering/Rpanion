@@ -49,6 +49,9 @@ sudo sed -i.bak -e '/^\[main\]/aauth-polkit=false' /etc/NetworkManager/NetworkMa
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "$SCRIPT_DIR/configure_ethernet.sh"
 
+## Configure WiFi power save and AP watchdog
+"$SCRIPT_DIR/configure_wifi.sh"
+
 ## For wireguard. Must be installed last as it messes the DNS resolutions
 sudo apt install -y resolvconf
 

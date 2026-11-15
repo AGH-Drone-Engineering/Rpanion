@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Rpanion WiFi Watchdog periodically
+After=NetworkManager.service
+
+[Timer]
+OnBootSec=25s
+OnUnitActiveSec=10s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
+

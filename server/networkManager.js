@@ -918,6 +918,44 @@ function applyEthernetAlias () {
   });
 }
 
+function getWifiSettings (callback) {
+  let apAutoReconnect = true
+  try {
+    apAutoReconnect = settings.value('wifi.apAutoReconnect', true)
+  } catch (_) {}
+  if (fs.existsSync('/etc/default/rpanion-wifi')) {
+    try {
+      const content = fs.readFileSync('/etc/default/rpanion-wifi', 'utf8')
+      const match = content.match(/AP_AUTO_RECONNECT=(true|false)/i)
+      if (match) {
+        apAutoReconnect = match[1].toLowerCase() === 'true'
+      }
+    } catch (_) {}
+  }
+  callback(null, { apAutoReconnect })
+}
+
+function setWifiSettings (newSettings, callback) {
+  const apAutoReconnect = Boolean(newSettings.apAutoReconnect !== false)
+  try {
+    settings.setValue('wifi.apAutoReconnect', apAutoReconnect)
+  } catch (_) {}
+
+  const configContent = `AP_AUTO_RECONNECT=${apAutoReconnect}\n`
+  try {
+    fs.writeFileSync('/etc/default/rpanion-wifi', configContent)
+  } catch (e) {
+    try {
+      fs.writeFileSync('/tmp/rpanion-wifi', configContent)
+      execSync('sudo cp /tmp/rpanion-wifi /etc/default/rpanion-wifi && sudo chown rpanion:rpanion /etc/default/rpanion-wifi && rm -f /tmp/rpanion-wifi')
+    } catch (err2) {
+      console.error('Error writing /etc/default/rpanion-wifi: ' + err2)
+    }
+  }
+
+  callback(null, { apAutoReconnect })
+}
+
 module.exports = {
   getAdapters,
   getConnections,
@@ -934,5 +972,8 @@ module.exports = {
   setEthernetAlias,
   getEthernetAliases,
   setEthernetAliases,
-  applyEthernetAlias
+  applyEthernetAlias,
+  resetWifiWatchdogState,
+  getWifiSettings,
+  setWifiSettings
 }

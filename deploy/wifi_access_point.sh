@@ -23,6 +23,8 @@ sudo nmcli connection modify $APNAME 802-11-wireless-security.group ccmp
 sudo nmcli connection modify $APNAME 802-11-wireless-security.pairwise ccmp
 # Disable WPS
 sudo nmcli connection modify $APNAME 802-11-wireless-security.wps-method 1
+sudo nmcli connection modify $APNAME connection.autoconnect no
+sudo nmcli connection modify $APNAME connection.autoconnect-priority 0
 
 sudo nmcli connection up $APNAME
 

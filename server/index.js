@@ -1539,7 +1539,8 @@ app.post('/api/networkedit', authenticateToken, [check('conName').isUUID(),
   check('conSettings.ipaddress').optional().isIP(),
   check('conSettings.subnet').optional().isIP(),
   check('conSettings.wpaType').optional().isIn(['none', 'wpa-psk']),
-  check('conSettings.password').optional().escape(),
+  check('conSettings.password').optional().isString(),
+  check('conSettings.priority').optional().isInt(),
   check('conSettings.ssid').optional().escape(),
   check('conSettings.attachedIface').optional().escape(),
   check('conSettings.band').optional().isIn(['a', 'bg']),
@@ -1576,7 +1577,8 @@ app.post('/api/networkadd', authenticateToken, [check('conSettings.ipaddresstype
   check('conSettings.ipaddress').optional().isIP(),
   check('conSettings.subnet').optional().isIP(),
   check('conSettings.wpaType').optional().isIn(['none', 'wpa-psk']),
-  check('conSettings.password').optional().escape(),
+  check('conSettings.password').optional().isString(),
+  check('conSettings.priority').optional().isInt(),
   check('conSettings.ssid').optional().escape(),
   check('conSettings.band').optional().isIn(['a', 'bg']),
   check('conSettings.channel').optional().isInt(),
@@ -1667,6 +1669,34 @@ app.post('/api/ethernetaliases', authenticateToken, [
       return res.status(500).json({ error: err })
     }
     res.json({ error: null })
+  })
+})
+
+// Get Wi-Fi settings (e.g. AP auto-reconnect)
+app.get('/api/wifisettings', authenticateToken, (req, res) => {
+  networkManager.getWifiSettings((err, data) => {
+    res.setHeader('Content-Type', 'application/json')
+    if (err) {
+      return res.status(500).json({ error: err.message || err })
+    }
+    res.json(data || { apAutoReconnect: true })
+  })
+})
+
+// Set Wi-Fi settings
+app.post('/api/wifisettings', authenticateToken, [
+  check('apAutoReconnect').isBoolean()
+], (req, res) => {
+  const errors = validationResult(req)
+  if (!errors.isEmpty()) {
+    return res.status(422).json({ error: JSON.stringify(errors.array()) })
+  }
+  networkManager.setWifiSettings(req.body, (err, data) => {
+    res.setHeader('Content-Type', 'application/json')
+    if (err) {
+      return res.status(500).json({ error: err.message || err })
+    }
+    res.json(data || { error: null })
   })
 })
 
