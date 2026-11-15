@@ -52,6 +52,17 @@ function generateSecretKey() {
 const RPANION_SECRET_KEY = process.env.RPANION_SECRET_KEY || generateSecretKey();
 let tokenBlacklist = [];
 
+// Helper functions for consistent API responses
+function sendApiError (res, statusCode, err) {
+  const message = typeof err === 'string' ? err : (err?.message || 'Internal server error')
+  return res.status(statusCode).json({ error: message, message: message })
+}
+
+function sendValidationError (res, errors) {
+  const message = errors.array().map(e => e.msg && e.msg !== 'Invalid value' ? e.msg : `${e.path || e.param || 'field'}: invalid value`).join(', ')
+  return res.status(422).json({ error: message, message: message })
+}
+
 // apply rate limiter to all requests
 app.use(limiter)
 
@@ -1457,171 +1468,109 @@ app.post('/api/networkIP', authenticateToken, [check('conName').isUUID()], (req,
 
 // user wants to activate network
 app.post('/api/networkactivate', authenticateToken, [check('conName').isUUID()], (req, res) => {
-  // Finds the validation errors in this request and wraps them in an object with handy functions
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
-    res.setHeader('Content-Type', 'application/json')
-    const ret = { error: 'Bad input - ' + errors.array()[0].param }
-    res.send(JSON.stringify(ret))
-    console.log('Bad POST vars in /api/networkactivate ', { message: errors.array() })
-  } else {
-    console.log('Activating network ' + req.body.conName)
-    networkManager.activateConnection(req.body.conName, (err) => {
-      if (err) {
-        res.setHeader('Content-Type', 'application/json')
-        const ret = { error: err }
-        res.send(JSON.stringify(ret))
-        console.log('Error in /api/networkactivate ', { message: err })
-      } else {
-        res.setHeader('Content-Type', 'application/json')
-        const ret = { error: null, action: 'NetworkActivateOK' }
-        res.send(JSON.stringify(ret))
-      }
-    })
+    return sendValidationError(res, errors)
   }
+  networkManager.activateConnection(req.body.conName, (err) => {
+    if (err) {
+      return sendApiError(res, 500, err)
+    }
+    return res.json({ error: null, action: 'NetworkActivateOK' })
+  })
 })
 
 // user wants to deactivate network
 app.post('/api/networkdeactivate', authenticateToken, [check('conName').isUUID()], (req, res) => {
-  // Finds the validation errors in this request and wraps them in an object with handy functions
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
-    res.setHeader('Content-Type', 'application/json')
-    const ret = { error: 'Bad input - ' + errors.array()[0].param }
-    res.send(JSON.stringify(ret))
-    console.log('Bad POST vars in /api/networkdeactivate ', { message: errors.array() })
-  } else {
-    console.log('Dectivating network ' + req.body.conName)
-    networkManager.deactivateConnection(req.body.conName, (err) => {
-      if (err) {
-        res.setHeader('Content-Type', 'application/json')
-        const ret = { error: err }
-        res.send(JSON.stringify(ret))
-        console.log('Error in /api/networkdeactivate ', { message: err })
-      } else {
-        res.setHeader('Content-Type', 'application/json')
-        const ret = { error: null, action: 'NetworkDectivateOK' }
-        res.send(JSON.stringify(ret))
-      }
-    })
+    return sendValidationError(res, errors)
   }
+  networkManager.deactivateConnection(req.body.conName, (err) => {
+    if (err) {
+      return sendApiError(res, 500, err)
+    }
+    return res.json({ error: null, action: 'NetworkDectivateOK' })
+  })
 })
 
 // user wants to delete network
 app.post('/api/networkdelete', authenticateToken, [check('conName').isUUID()], (req, res) => {
-  // Finds the validation errors in this request and wraps them in an object with handy functions
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
-    res.setHeader('Content-Type', 'application/json')
-    const ret = { error: 'Bad input - ' + errors.array()[0].param }
-    res.send(JSON.stringify(ret))
-    console.log('Bad POST vars in /api/networkdelete ', { message: errors.array() })
-  } else {
-    console.log('Deleting network ' + req.body.conName)
-    networkManager.deleteConnection(req.body.conName, (err) => {
-      if (err) {
-        res.setHeader('Content-Type', 'application/json')
-        const ret = { error: err }
-        res.send(JSON.stringify(ret))
-        console.log('Error in /api/networkdelete ', { message: err })
-      } else {
-        res.setHeader('Content-Type', 'application/json')
-        const ret = { error: null, action: 'NetworkDeleteOK' }
-        res.send(JSON.stringify(ret))
-      }
-    })
+    return sendValidationError(res, errors)
   }
+  networkManager.deleteConnection(req.body.conName, (err) => {
+    if (err) {
+      return sendApiError(res, 500, err)
+    }
+    return res.json({ error: null, action: 'NetworkDeleteOK' })
+  })
 })
 
 // user wants to edit network
-app.post('/api/networkedit', authenticateToken, [check('conName').isUUID(),
+app.post('/api/networkedit', authenticateToken, [
+  check('conName').isUUID(),
   check('conSettings.ipaddresstype').isIn(['auto', 'manual', 'shared']),
-  check('conSettings.ipaddress').optional().isIP(),
-  check('conSettings.subnet').optional().isIP(),
+  check('conSettings.ipaddress').optional({ checkFalsy: true }).isIP(),
+  check('conSettings.subnet').optional({ checkFalsy: true }).isIP(),
   check('conSettings.wpaType').optional().isIn(['none', 'wpa-psk']),
   check('conSettings.password').optional().isString(),
   check('conSettings.priority').optional().isInt(),
-  check('conSettings.ssid').optional().escape(),
-  check('conSettings.attachedIface').optional().escape(),
+  check('conSettings.ssid').optional(),
+  check('conSettings.attachedIface').optional(),
   check('conSettings.band').optional().isIn(['a', 'bg']),
   check('conSettings.channel').optional().isInt(),
   check('conSettings.mode').optional().isIn(['infrastructure', 'ap'])
-],
-(req, res) => {
-  // Finds the validation errors in this request and wraps them in an object with handy functions
+], (req, res) => {
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
-    res.setHeader('Content-Type', 'application/json')
-    const ret = { error: 'Bad input - ' + errors.array()[0].param }
-    res.send(JSON.stringify(ret))
-    console.log('Bad POST vars in /api/networkedit ', { message: errors.array() })
-  } else {
-    console.log('Editing network ' + req.body.conName)
-    networkManager.editConnection(req.body.conName, req.body.conSettings, (err) => {
-      if (err) {
-        res.setHeader('Content-Type', 'application/json')
-        const ret = { error: err }
-        res.send(JSON.stringify(ret))
-        console.log('Error in /api/networkedit ', { message: err })
-      } else {
-        res.setHeader('Content-Type', 'application/json')
-        const ret = { error: null, action: 'NetworkEditOK' }
-        res.send(JSON.stringify(ret))
-      }
-    })
+    return sendValidationError(res, errors)
   }
+  networkManager.editConnection(req.body.conName, req.body.conSettings, (err) => {
+    if (err) {
+      return sendApiError(res, 500, err)
+    }
+    return res.json({ error: null, action: 'NetworkEditOK' })
+  })
 })
 
 // User wants to add network
-app.post('/api/networkadd', authenticateToken, [check('conSettings.ipaddresstype').isIn(['auto', 'manual', 'shared']),
-  check('conSettings.ipaddress').optional().isIP(),
-  check('conSettings.subnet').optional().isIP(),
+app.post('/api/networkadd', authenticateToken, [
+  check('conSettings.ipaddresstype').isIn(['auto', 'manual', 'shared']),
+  check('conSettings.ipaddress').optional({ checkFalsy: true }).isIP(),
+  check('conSettings.subnet').optional({ checkFalsy: true }).isIP(),
   check('conSettings.wpaType').optional().isIn(['none', 'wpa-psk']),
   check('conSettings.password').optional().isString(),
   check('conSettings.priority').optional().isInt(),
-  check('conSettings.ssid').optional().escape(),
+  check('conSettings.ssid').optional(),
   check('conSettings.band').optional().isIn(['a', 'bg']),
   check('conSettings.channel').optional().isInt(),
-  check('conSettings.attachedIface').optional().escape(),
+  check('conSettings.attachedIface').optional(),
   check('conSettings.mode').optional().isIn(['infrastructure', 'ap']),
-  check('conName').escape(),
-  check('conType').escape(),
-  check('conAdapter').escape()
-],
-(req, res) => {
-  // Finds the validation errors in this request and wraps them in an object with handy functions
+  check('conName').isString(),
+  check('conType').isIn(['wifi', 'ethernet']),
+  check('conAdapter').isString()
+], (req, res) => {
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
-    res.setHeader('Content-Type', 'application/json')
-    const ret = { error: 'Bad input - ' + errors.array()[0].param }
-    res.send(JSON.stringify(ret))
-    console.log('Bad POST vars in /api/networkadd ', { message: errors.array() })
-  } else {
-    console.log('Adding network ' + req.body)
-    networkManager.addConnection(req.body.conName, req.body.conType, req.body.conAdapter, req.body.conSettings, (err) => {
-      if (err) {
-        res.setHeader('Content-Type', 'application/json')
-        const ret = { error: err }
-        res.send(JSON.stringify(ret))
-        console.log('Error in /api/networkadd ', { message: err })
-      } else {
-        res.setHeader('Content-Type', 'application/json')
-        const ret = { error: null, action: 'NetworkAddOK' }
-        res.send(JSON.stringify(ret))
-      }
-    })
+    return sendValidationError(res, errors)
   }
-  console.log(req.body)
+  networkManager.addConnection(req.body.conName, req.body.conType, req.body.conAdapter, req.body.conSettings, (err, uuid) => {
+    if (err) {
+      return sendApiError(res, 500, err)
+    }
+    return res.json({ error: null, action: 'NetworkAddOK', uuid })
+  })
 })
 
 // Get Ethernet secondary IP alias settings
 app.get('/api/ethernetalias', authenticateToken, (req, res) => {
   networkManager.getEthernetAlias((err, data) => {
-    res.setHeader('Content-Type', 'application/json')
     if (err) {
-      return res.status(500).json({ error: err })
+      return sendApiError(res, 500, err)
     }
-    res.json(data)
+    return res.json(data)
   })
 })
 
@@ -1633,25 +1582,23 @@ app.post('/api/ethernetalias', authenticateToken, [
 ], (req, res) => {
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
-    return res.status(422).json({ error: JSON.stringify(errors.array()) })
+    return sendValidationError(res, errors)
   }
   networkManager.setEthernetAlias(req.body, (err) => {
-    res.setHeader('Content-Type', 'application/json')
     if (err) {
-      return res.status(500).json({ error: err })
+      return sendApiError(res, 500, err)
     }
-    res.json({ error: null })
+    return res.json({ error: null })
   })
 })
 
 // Get all Ethernet static IP aliases
 app.get('/api/ethernetaliases', authenticateToken, (req, res) => {
   networkManager.getEthernetAliases((err, data) => {
-    res.setHeader('Content-Type', 'application/json')
     if (err) {
-      return res.status(500).json({ error: err })
+      return sendApiError(res, 500, err)
     }
-    res.json(data || [])
+    return res.json(data || [])
   })
 })
 
@@ -1661,25 +1608,23 @@ app.post('/api/ethernetaliases', authenticateToken, [
 ], (req, res) => {
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
-    return res.status(422).json({ error: JSON.stringify(errors.array()) })
+    return sendValidationError(res, errors)
   }
   networkManager.setEthernetAliases(req.body.aliases, (err) => {
-    res.setHeader('Content-Type', 'application/json')
     if (err) {
-      return res.status(500).json({ error: err })
+      return sendApiError(res, 500, err)
     }
-    res.json({ error: null })
+    return res.json({ error: null })
   })
 })
 
 // Get Wi-Fi settings (e.g. AP auto-reconnect)
 app.get('/api/wifisettings', authenticateToken, (req, res) => {
   networkManager.getWifiSettings((err, data) => {
-    res.setHeader('Content-Type', 'application/json')
     if (err) {
-      return res.status(500).json({ error: err.message || err })
+      return sendApiError(res, 500, err)
     }
-    res.json(data || { apAutoReconnect: true })
+    return res.json(data || { apAutoReconnect: true })
   })
 })
 
@@ -1689,14 +1634,15 @@ app.post('/api/wifisettings', authenticateToken, [
 ], (req, res) => {
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
-    return res.status(422).json({ error: JSON.stringify(errors.array()) })
+    return sendValidationError(res, errors)
   }
   networkManager.setWifiSettings(req.body, (err, data) => {
-    res.setHeader('Content-Type', 'application/json')
     if (err) {
-      return res.status(500).json({ error: err.message || err })
+      return sendApiError(res, 500, err)
     }
-    res.json(data || { error: null })
+    return res.json(data || { error: null })
+  })
+})
   })
 })
 

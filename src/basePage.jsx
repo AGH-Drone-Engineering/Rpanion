@@ -130,7 +130,7 @@ class basePage extends Component {
             </Modal.Header>
 
             <Modal.Body>
-              <p>{this.state.error}</p>
+              <p>{typeof this.state.error === 'string' ? this.state.error : (this.state.error ? (this.state.error.message || JSON.stringify(this.state.error)) : '')}</p>
             </Modal.Body>
 
             <Modal.Footer>
