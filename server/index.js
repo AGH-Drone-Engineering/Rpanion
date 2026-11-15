@@ -1612,6 +1612,64 @@ app.post('/api/networkadd', authenticateToken, [check('conSettings.ipaddresstype
   console.log(req.body)
 })
 
+// Get Ethernet secondary IP alias settings
+app.get('/api/ethernetalias', authenticateToken, (req, res) => {
+  networkManager.getEthernetAlias((err, data) => {
+    res.setHeader('Content-Type', 'application/json')
+    if (err) {
+      return res.status(500).json({ error: err })
+    }
+    res.json(data)
+  })
+})
+
+// Set Ethernet secondary IP alias settings
+app.post('/api/ethernetalias', authenticateToken, [
+  check('enabled').isBoolean(),
+  check('ip').optional({ checkFalsy: true }).isIP(),
+  check('subnet').optional({ checkFalsy: true }).isIP()
+], (req, res) => {
+  const errors = validationResult(req)
+  if (!errors.isEmpty()) {
+    return res.status(422).json({ error: JSON.stringify(errors.array()) })
+  }
+  networkManager.setEthernetAlias(req.body, (err) => {
+    res.setHeader('Content-Type', 'application/json')
+    if (err) {
+      return res.status(500).json({ error: err })
+    }
+    res.json({ error: null })
+  })
+})
+
+// Get all Ethernet static IP aliases
+app.get('/api/ethernetaliases', authenticateToken, (req, res) => {
+  networkManager.getEthernetAliases((err, data) => {
+    res.setHeader('Content-Type', 'application/json')
+    if (err) {
+      return res.status(500).json({ error: err })
+    }
+    res.json(data || [])
+  })
+})
+
+// Set all Ethernet static IP aliases
+app.post('/api/ethernetaliases', authenticateToken, [
+  check('aliases').isArray()
+], (req, res) => {
+  const errors = validationResult(req)
+  if (!errors.isEmpty()) {
+    return res.status(422).json({ error: JSON.stringify(errors.array()) })
+  }
+  networkManager.setEthernetAliases(req.body.aliases, (err) => {
+    res.setHeader('Content-Type', 'application/json')
+    if (err) {
+      return res.status(500).json({ error: err })
+    }
+    res.json({ error: null })
+  })
+})
+
 // Pass GUI requests to the React app only in production mode
 if (process.env.NODE_ENV !== 'development')
 {

@@ -1,4 +1,6 @@
 const { exec, execSync, execFile } = require('child_process')
+const fs = require('fs')
+const settings = require('settings-store')
 
 function getAdapters (callback) {
   // Get all network adapter name, type and states
@@ -73,18 +75,57 @@ function setWirelessStatus (status, callback) {
   })
 }
 
+function resetWifiWatchdogState () {
+  const paths = [
+    '/run/rpanion-wifi/connected-client',
+    '/run/rpanion-wifi/disconnect-time',
+    '/run/rpanion-wifi-connected-client',
+    '/run/rpanion-wifi-disconnect-time'
+  ];
+  paths.forEach((p) => {
+    try {
+      if (fs.existsSync(p)) {
+        fs.unlinkSync(p);
+      }
+    } catch (e) {
+      // Ignore cleanup error
+    }
+  });
+}
+
 function activateConnection (conName, callback) {
+  resetWifiWatchdogState();
   // activate the connection (by id)
   // assumed that conName is a valid UUID
-  execFile('sudo', ['nmcli', 'connection', 'mod', conName, 'connection.autoconnect', 'yes'], (error, stdout, stderr) => {
+  execFile('sudo', ['nmcli', '-g', 'connection.id', 'connection', 'show', conName], (errShow, stdoutShow) => {
+    const conId = (stdoutShow || '').trim();
+    const autoVal = (conId === 'WiFiAP') ? 'no' : 'yes';
+    execFile('sudo', ['nmcli', 'connection', 'mod', conName, 'connection.autoconnect', autoVal], (error, stdout, stderr) => {
     if (stderr) {
       console.error(`exec error: ${error}`)
       return callback(stderr)
     } else {
       execFile('sudo', ['nmcli', 'connection', 'up', conName], (error, stdout, stderr) => {
-        if (stderr) {
-          console.error(`exec error: ${error}`)
-          return callback(stderr)
+        if (stderr || error) {
+          const rawErr = stderr || (error && error.message) || 'Activation failed';
+          console.error(`exec error in connection up: ${rawErr}`);
+
+          let errMsg = rawErr;
+          if (rawErr.includes('IP configuration could not be reserved') || rawErr.includes('no available address, timeout')) {
+            errMsg = 'DHCP timeout: No response from DHCP server. An IP address could not be obtained.';
+          }
+
+          execFile('sudo', ['nmcli', '-g', 'connection.type', 'connection', 'show', conName], (errType, stdoutType) => {
+            const conType = (stdoutType || '').trim();
+            if (conType === '802-11-wireless') {
+              execFile('sudo', ['nmcli', 'connection', 'up', 'WiFiAP'], (errAP) => {
+                console.log('Rolled back to WiFiAP due to Wi-Fi activation failure of ' + conName);
+                return callback(errMsg);
+              });
+            } else {
+              return callback(errMsg);
+            }
+          });
         } else {
           console.log('Activated network: ' + conName)
           return callback(null, 'OK')
@@ -92,27 +133,35 @@ function activateConnection (conName, callback) {
       })
     }
   })
+  })
 }
 
 function deactivateConnection (conName, callback) {
   // deactivate the connection (by id)
   // assumed that conName is a valid UUID
-  // need to disable auto-connect too
-  execFile('sudo', ['nmcli', 'connection', 'mod', conName, 'connection.autoconnect', 'no'], (error, stdout, stderr) => {
-    if (stderr) {
-      console.error(`exec error: ${error}`)
-      return callback(stderr)
-    } else {
-      execFile('sudo', ['nmcli', 'connection', 'down', conName], (error, stdout, stderr) => {
-        if (stderr) {
-          console.error(`exec error: ${error}`)
-          return callback(stderr)
-        } else {
-          console.log('Dectivated network: ' + conName)
-          return callback(null, 'OK')
-        }
-      })
+  execFile('sudo', ['nmcli', '-g', 'connection.id', 'connection', 'show', conName], (errShow, stdoutShow) => {
+    const conId = (stdoutShow || '').trim();
+    if (conId === 'Ethernet-Server' || conId === 'WiFiAP') {
+      console.log('Blocked deactivation of fallback profile: ' + conId);
+      return callback('Cannot deactivate fallback profile: ' + conId);
     }
+    // need to disable auto-connect too
+    execFile('sudo', ['nmcli', 'connection', 'mod', conName, 'connection.autoconnect', 'no'], (error, stdout, stderr) => {
+      if (stderr) {
+        console.error(`exec error: ${error}`)
+        return callback(stderr)
+      } else {
+        execFile('sudo', ['nmcli', 'connection', 'down', conName], (error, stdout, stderr) => {
+          if (stderr) {
+            console.error(`exec error: ${error}`)
+            return callback(stderr)
+          } else {
+            console.log('Dectivated network: ' + conName)
+            return callback(null, 'OK')
+          }
+        })
+      }
+    })
   })
 }
 
@@ -132,63 +181,124 @@ function getPrimaryWifiDevice(callback) {
 }
 
 function getWifiScan(callback) {
+  const parseIw = (stdout) => {
+    const rawNetworks = [];
+    let current = null;
+
+    (stdout || '').split('\n').forEach(line => {
+      line = line.trim();
+
+      if (line.startsWith('BSS ')) {
+        if (current) rawNetworks.push(current);
+        current = { ssid: null, signal: null, security: 'Open' };
+        return;
+      }
+
+      if (!current) return;
+
+      if (line.startsWith('SSID:')) {
+        current.ssid = line.slice(5).trim();
+        // if not ascii, return
+        if (!/^[\x00-\x7F]*$/.test(current.ssid)) {
+          current.ssid = null;
+          return;
+        }
+      }
+
+      if (line.startsWith('signal:')) {
+        const dBm = parseFloat(line.split(' ')[1]);
+        current.signal = dBm;
+      }
+
+      if (line.includes('RSN:')) {
+        current.security = 'WPA2';
+      } else if (line.includes('WPA:')) {
+        current.security = 'WPA';
+      } else if (line.includes('WEP:')) {
+        current.security = 'WEP';
+      }
+    });
+    if (current) rawNetworks.push(current);
+
+    const deduped = new Map();
+    rawNetworks.forEach(net => {
+      if (!net.ssid || net.ssid === 'rpanion' || net.ssid === 'WiFiAP') return;
+      if (!deduped.has(net.ssid) || deduped.get(net.ssid).signal < net.signal) {
+        deduped.set(net.ssid, net);
+      }
+    });
+
+    return Array.from(deduped.values()).sort((a, b) => b.signal - a.signal);
+  };
+
+  const fallbackNmcli = () => {
+    const parseNmcli = (stdout) => {
+      const networks = [];
+      const seenSSIDs = new Set();
+
+      (stdout || '').split('\n').forEach(line => {
+        line = line.trim();
+        if (!line) return;
+
+        const parts = line.split(/(?<!\\):/);
+        if (parts.length >= 3) {
+          const ssid = parts[0].replace(/\\:/g, ':').trim();
+          if (!ssid || ssid === '--' || ssid === 'rpanion' || ssid === 'WiFiAP') return;
+          if (!/^[\x00-\x7F]*$/.test(ssid)) return;
+          if (seenSSIDs.has(ssid)) return;
+          seenSSIDs.add(ssid);
+
+          const signalVal = parseInt(parts[1], 10);
+          const rawSec = parts[2] || '';
+          let security = 'Open';
+          if (rawSec.includes('WPA3')) {
+            security = 'WPA3';
+          } else if (rawSec.includes('WPA2') || rawSec.includes('RSN')) {
+            security = 'WPA2';
+          } else if (rawSec.includes('WPA')) {
+            security = 'WPA';
+          } else if (rawSec.includes('WEP')) {
+            security = 'WEP';
+          }
+
+          networks.push({
+            ssid: ssid,
+            signal: isNaN(signalVal) ? 0 : signalVal,
+            security: security
+          });
+        }
+      });
+      return networks.sort((a, b) => b.signal - a.signal);
+    };
+
+    // Always trigger active rescan and wait 2s for wpa_supplicant to discover all in-range networks
+    exec('nmcli dev wifi rescan 2>/dev/null || true; sleep 2; nmcli -t -c no -f SSID,SIGNAL,SECURITY dev wifi list', (err, stdout) => {
+      if (err && !stdout) {
+        console.error(`nmcli wifi list error: ${err}`);
+        return callback(err);
+      }
+      callback(null, parseNmcli(stdout));
+    });
+  };
+
   getPrimaryWifiDevice((error, device) => {
-    if (error) {
-      return callback(error)
+    if (error || !device) {
+      return fallbackNmcli();
     }
 
     exec(`sudo iw dev ${device} scan ap-force`, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`exec error: ${error}`)
-        return callback(error)
-      }
-      if (stderr) {
-        console.error(`stderr: ${stderr}`)
-        return callback(new Error(stderr))
+      if (error || stderr) {
+        return fallbackNmcli();
       }
 
-      const networks = [];
-      let current = null;
+      const networks = parseIw(stdout);
+      if (networks.length === 0) {
+        return fallbackNmcli();
+      }
 
-      stdout.split("\n").forEach(line => {
-        line = line.trim();
-
-        if (line.startsWith("BSS ")) {
-          if (current) networks.push(current);
-          current = { ssid: null, signal: null, security: "Open" };
-          return;
-        }
-
-        if (!current) return;
-
-        if (line.startsWith("SSID:")) {
-          current.ssid = line.slice(5).trim();
-          // if not ascii, return
-          if (!/^[\x00-\x7F]*$/.test(current.ssid)) {
-            return;
-          }
-        }
-
-        if (line.startsWith("signal:")) {
-          const dBm = parseFloat(line.split(" ")[1]);
-          current.signal = dBm;
-        }
-
-        if (line.includes("RSN:")) {
-          current.security = "WPA2";
-        } else if (line.includes("WPA:")) {
-          current.security = "WPA";
-        } else if (line.includes("WEP:")) {
-          current.security = "WEP";
-        }
-      });
-      if (current) networks.push(current);
-      callback(null, networks
-        .filter(net => net.ssid) // Filter out entries without SSID
-        .sort((a, b) => b.signal - a.signal) // Sort by signal strength descending
-      );
+      callback(null, networks);
     });
-  })
+  });
 }
 
 function addConnection (conNameStr, conType, conAdapter, conSettings, callback) {
@@ -197,6 +307,10 @@ function addConnection (conNameStr, conType, conAdapter, conSettings, callback) 
   // nmcli connection add type wifi ifname $IFNAME con-name $APNAME ssid $SSID
   // due to the multiple edits, we need to set autoconnect to "no"
   if (conType === 'wifi') {
+    resetWifiWatchdogState();
+    if (conSettings.priority === undefined || conSettings.priority === null || conSettings.priority === '') {
+      conSettings.priority = conSettings.mode === 'ap' ? 0 : 100;
+    }
     // Build nmcli command gradually for readability
     // Build argument array for nmcli command
     let nmcliArgs = ['connection', 'add', 'type', conType, 'ifname', conAdapter, 'con-name', conNameStr, 'ssid', conSettings.ssid, '802-11-wireless.mode', conSettings.mode];
@@ -244,6 +358,9 @@ function addConnection (conNameStr, conType, conAdapter, conSettings, callback) 
       }
     });
   } else {
+    if (conSettings.priority === undefined || conSettings.priority === null || conSettings.priority === '') {
+      conSettings.priority = 100;
+    }
     exec('sudo nmcli connection add type ' + conType + ' ifname ' + conAdapter +
              ' con-name ' + conNameStr + ' connection.autoconnect no ' + '&&' +
              'sudo nmcli -g connection.uuid con show ' + conNameStr, (error, stdout, stderr) => {
@@ -273,57 +390,128 @@ function addConnection (conNameStr, conType, conAdapter, conSettings, callback) 
 }
 
 function editConnection (conName, conSettings, callback) {
+  resetWifiWatchdogState();
   // edit an existing connection
   // assumed that conName is a valid UUID
-  // there are 4 types of edits - AttachedInterface, IP, Wifi security, Wifi AP
-  // small amount of callback hell here :(
-  console.log(conSettings)
-  editConnectionAttached(conName, conSettings, (errAttach) => {
-    console.log('Attach')
-    if (!errAttach) {
-      editConnectionIP(conName, conSettings, (errIP) => {
-        console.log('IP')
-        if (!errIP) {
-          editConnectionPSK(conName, conSettings, (errPSK) => {
-            console.log('PSK')
-            if (!errPSK) {
-              editConnectionAPClient(conName, conSettings, (errAP) => {
-                console.log('AP')
-                if (!errAP) {
-                  return callback(null, 'EditOK')
+  // there are 5 types of edits - AttachedInterface, IP, Wifi security, Wifi AP, Priority
+  execFile('sudo', ['nmcli', '-g', 'connection.id', 'connection', 'show', conName], (errShow, stdoutShow) => {
+    const conId = (stdoutShow || '').trim();
+    if (conId === 'Ethernet-Server' && conSettings.ipaddresstype && conSettings.ipaddresstype !== 'shared') {
+      console.log('Blocked modification of IP mode for fallback profile: ' + conId);
+      return callback('Cannot modify IP mode for fallback profile: ' + conId);
+    }
+
+    const proceedEdit = () => {
+      console.log(conSettings)
+      editConnectionAttached(conName, conSettings, (errAttach) => {
+        console.log('Attach')
+        if (!errAttach) {
+          editConnectionIP(conName, conSettings, (errIP) => {
+            console.log('IP')
+            if (!errIP) {
+              editConnectionPSK(conName, conSettings, (errPSK) => {
+                console.log('PSK')
+                if (!errPSK) {
+                  editConnectionAPClient(conName, conSettings, (errAP) => {
+                    console.log('AP')
+                    if (!errAP) {
+                      editConnectionPriority(conName, conSettings, (errPriority) => {
+                        console.log('Priority')
+                        if (errPriority) {
+                          return callback(errPriority)
+                        }
+                        // If this connection is currently active, reactivate it to apply new settings to the live device
+                        execFile('sudo', ['nmcli', '-t', '-f', 'GENERAL.STATE', 'connection', 'show', conName], (errDev, stdoutDev) => {
+                          if ((stdoutDev || '').includes('activated')) {
+                            console.log('Re-applying modified active connection: ' + conName)
+                            execFile('sudo', ['nmcli', 'connection', 'up', conName], (errUp) => {
+                              if (errUp) console.warn('Warning: nmcli connection up returned: ' + errUp)
+                              return callback(null, 'EditOK')
+                            })
+                          } else {
+                            return callback(null, 'EditOK')
+                          }
+                        })
+                      })
+                    } else {
+                      return callback(errAP)
+                    }
+                  })
                 } else {
-                  return callback(errAP)
+                  console.log('Error in editConnection() errPSK ', { message: errPSK })
+                  return callback(errPSK)
                 }
               })
             } else {
-              console.log('Error in editConnection() errPSK ', { message: errPSK })
-              return callback(errPSK)
+              console.log('Error in editConnection() errIP ', { message: errIP })
+              return callback(errIP)
             }
           })
         } else {
-          console.log('Error in editConnection() errIP ', { message: errIP })
-          return callback(errIP)
+          console.log('Error in editConnection() errAttach ', { message: errAttach })
+          return callback(errAttach)
         }
       })
-    } else {
-      console.log('Error in editConnection() errAttach ', { message: errAttach })
-      return callback(errAttach)
+    };
+
+    if (conSettings.priority !== undefined && conSettings.priority !== '') {
+      const newPrio = parseInt(conSettings.priority);
+      if (conId === 'Ethernet-Server') {
+        return execFile('sudo', ['nmcli', '-g', 'connection.autoconnect-priority', 'connection', 'show', 'Ethernet-Client'], (errClient, stdoutClient) => {
+          if (!errClient && stdoutClient) {
+            const clientPrio = parseInt(stdoutClient.trim());
+            if (!isNaN(clientPrio) && newPrio >= clientPrio) {
+              return callback(`Ethernet-Server priority (${newPrio}) must be lower than Ethernet-Client priority (${clientPrio})`);
+            }
+          }
+          proceedEdit();
+        });
+      } else if (conId === 'Ethernet-Client') {
+        return execFile('sudo', ['nmcli', '-g', 'connection.autoconnect-priority', 'connection', 'show', 'Ethernet-Server'], (errServer, stdoutServer) => {
+          if (!errServer && stdoutServer) {
+            const serverPrio = parseInt(stdoutServer.trim());
+            if (!isNaN(serverPrio) && newPrio <= serverPrio) {
+              return callback(`Ethernet-Client priority (${newPrio}) must be higher than Ethernet-Server priority (${serverPrio})`);
+            }
+          }
+          proceedEdit();
+        });
+      }
     }
+
+    proceedEdit();
   })
+}
+
+function editConnectionPriority (conName, conSettings, callback) {
+  if (conSettings.priority !== undefined && conSettings.priority !== null && conSettings.priority !== '') {
+    execFile('sudo', ['nmcli', 'connection', 'mod', conName, 'connection.autoconnect-priority', conSettings.priority.toString()], (error, stdout, stderr) => {
+      if (stderr || error) {
+        console.error(`exec error in editConnectionPriority: ${error || stderr}`)
+        return callback(stderr || error)
+      } else {
+        console.log('Edited network Priority: ' + conName + ' to ' + conSettings.priority)
+        return callback(null, 'EditPriorityOK')
+      }
+    })
+  } else {
+    return callback(null, 'EditNotRequired')
+  }
 }
 
 function editConnectionAttached (conName, conSettings, callback) {
   // edit the attached interface for a connection
-  if (conSettings.attachedIface === '&quot;&quot;' || conSettings.attachedIface === 'undefined') {
-    conSettings.attachedIface = '""'
+  let iface = conSettings.attachedIface;
+  if (!iface || iface === '&quot;&quot;' || iface === 'undefined' || iface === '""' || iface === '\"\"') {
+    iface = '';
   }
 
-  execFile('sudo', ['nmcli', 'connection', 'mod', conName, 'connection.interface-name', conSettings.attachedIface], (error, stdout, stderr) => {
+  execFile('sudo', ['nmcli', 'connection', 'mod', conName, 'connection.interface-name', iface], (error, stdout, stderr) => {
     if (stderr) {
       console.error(`exec error: ${error}`)
       return callback(stderr)
     } else {
-      console.log('Edited network Attachment: ' + conName + ' to ' + conSettings.attachedIface)
+      console.log('Edited network Attachment: ' + conName + ' to ' + (iface || '(any)'))
       return callback(null, 'EditAttachOK')
     }
   })
@@ -456,17 +644,25 @@ function editConnectionAPClient (conName, conSettings, callback) {
 }
 
 function deleteConnection (conName, callback) {
+  resetWifiWatchdogState();
   // delete the connection (by id)
   // assumed that conName is a valid UUID
-  execFile('sudo', ['nmcli', 'connection', 'delete', conName], (error, stdout, stderr) => {
-    if (stderr) {
-      console.error(`exec error: ${error}`)
-      return callback(stderr)
-    } else {
-      console.log('Deleted network: ' + conName)
-      return callback(null, 'OK')
+  execFile('sudo', ['nmcli', '-g', 'connection.id', 'connection', 'show', conName], (errShow, stdoutShow) => {
+    const conId = (stdoutShow || '').trim();
+    if (conId === 'Ethernet-Server' || conId === 'Ethernet-Client' || conId === 'WiFiAP') {
+      console.log('Blocked deletion of system profile: ' + conId);
+      return callback('Cannot delete system profile: ' + conId);
     }
-  })
+    execFile('sudo', ['nmcli', 'connection', 'delete', conName], (error, stdout, stderr) => {
+      if (stderr) {
+        console.error(`exec error: ${error}`);
+        return callback(stderr);
+      } else {
+        console.log('Deleted network: ' + conName);
+        return callback(null, 'OK');
+      }
+    });
+  });
 }
 
 function getConnections (callback) {
@@ -511,13 +707,18 @@ function getConnections (callback) {
 }
 
 function getConnectionDetails (conName, callback) {
-  execFile('sudo', ['nmcli', '-s', '-t', '-f', 'ipv4.addresses,802-11-wireless.band,ipv4.method,IP4.ADDRESS,802-11-wireless.ssid,802-11-wireless.mode,802-11-wireless-security.key-mgmt,802-11-wireless-security.psk,connection.interface-name,802-11-wireless.channel', 'connection', 'show', conName], (error, stdout, stderr) => {
+  execFile('sudo', ['nmcli', '-s', '-t', '-f', 'ipv4.addresses,802-11-wireless.band,ipv4.method,IP4.ADDRESS,802-11-wireless.ssid,802-11-wireless.mode,802-11-wireless-security.key-mgmt,802-11-wireless-security.psk,connection.interface-name,802-11-wireless.channel,connection.autoconnect-priority', 'connection', 'show', conName], (error, stdout, stderr) => {
     if (stderr) {
       // no connection with that name
       console.error(`exec error: ${error}`)
       return callback(stderr)
     } else {
-      const ret = { DHCP: 'auto', IP: '', subnet: '', mode: '', wpaType: 'none', password: '' }
+      const ret = { DHCP: 'auto', IP: '', subnet: '', mode: '', wpaType: 'none', password: '', priority: 0 }
+      let configuredIP = ''
+      let configuredSubnet = ''
+      let activeIP = ''
+      let activeSubnet = ''
+
       stdout.split('\n').forEach(function (item) {
         if (item.split(':')[0] === '802-11-wireless.ssid') {
           ret.ssid = item.split(':')[1]
@@ -530,15 +731,15 @@ function getConnectionDetails (conName, callback) {
         } else if (item.split(':')[0] === 'ipv4.method') {
           ret.DHCP = item.split(':')[1]
         }
-        // DHCP IP, if using DHCP
-        else if (item.split(':')[0] === 'IP4.ADDRESS[1]' && item.split(':').length > 1 && item.split(':')[1] !== '') {
-          ret.IP = item.split(':')[1].split('/')[0]
-          ret.subnet = CIDR2netmask(item.split(':')[1].split('/')[1])
-        }
-        // static IP
+        // static IP configured in profile
         else if (item.split(':')[0] === 'ipv4.addresses' && item.split(':').length > 1 && item.split(':')[1] !== '') {
-          ret.IP = item.split(':')[1].split('/')[0]
-          ret.subnet = CIDR2netmask(item.split(':')[1].split('/')[1])
+          configuredIP = item.split(':')[1].split('/')[0]
+          configuredSubnet = CIDR2netmask(item.split(':')[1].split('/')[1])
+        }
+        // active runtime IP
+        else if (item.split(':')[0] === 'IP4.ADDRESS[1]' && item.split(':').length > 1 && item.split(':')[1] !== '') {
+          activeIP = item.split(':')[1].split('/')[0]
+          activeSubnet = CIDR2netmask(item.split(':')[1].split('/')[1])
         } else if (item.split(':')[0] === '802-11-wireless.mode') {
           ret.mode = item.split(':')[1]
         } else if (item.split(':')[0] === '802-11-wireless-security.key-mgmt') {
@@ -549,8 +750,19 @@ function getConnectionDetails (conName, callback) {
           ret.attachedIface = item.split(':')[1]
         } else if (item.split(':')[0] === '802-11-wireless.channel') {
           ret.channel = item.split(':')[1]
+        } else if (item.split(':')[0] === 'connection.autoconnect-priority') {
+          ret.priority = parseInt(item.split(':')[1]) || 0
         }
       })
+
+      if (ret.DHCP === 'auto') {
+        ret.IP = activeIP || configuredIP
+        ret.subnet = activeSubnet || configuredSubnet
+      } else {
+        ret.IP = configuredIP || activeIP
+        ret.subnet = configuredSubnet || activeSubnet
+      }
+
       return callback(null, ret)
     }
   })
@@ -585,6 +797,127 @@ function netmask2CIDR (mask) {
   return cidr.split('1').length - 1
 }
 
+function getEthernetAliases (callback) {
+  let aliases = settings.value('ethernet.aliases', [])
+  if (!Array.isArray(aliases)) {
+    aliases = []
+  }
+
+  // Migrate old single alias if present and list is empty
+  const oldEnabled = Boolean(settings.value('ethernet.alias.enabled', false))
+  const oldIp = settings.value('ethernet.alias.ip', '')
+  const oldSubnet = settings.value('ethernet.alias.subnet', '255.255.255.0')
+  if (aliases.length === 0 && oldEnabled && oldIp) {
+    aliases.push({ id: 'alias-' + Date.now(), ip: oldIp, subnet: oldSubnet })
+    settings.setValue('ethernet.aliases', aliases)
+  }
+
+  execFile('ip', ['-o', '-4', 'addr', 'show', 'dev', 'eth0'], (err, stdout) => {
+    const out = stdout || ''
+    const result = aliases.map(item => ({
+      id: item.id || (item.ip + '-' + item.subnet),
+      ip: item.ip,
+      subnet: item.subnet || '255.255.255.0',
+      active: out.includes(` ${item.ip}/`)
+    }))
+    return callback(null, result)
+  })
+}
+
+function setEthernetAliases (aliasesList, callback) {
+  if (!Array.isArray(aliasesList)) {
+    return callback(new Error('Invalid aliases list'))
+  }
+
+  const oldAliases = settings.value('ethernet.aliases', [])
+  const validList = aliasesList.filter(item => item && item.ip).map((item, idx) => ({
+    id: item.id || ('alias-' + idx + '-' + Date.now()),
+    ip: item.ip.trim(),
+    subnet: (item.subnet || '255.255.255.0').trim()
+  }))
+
+  settings.setValue('ethernet.aliases', validList)
+
+  // Build ETH_ALIASES string for /etc/default/rpanion-eth-alias
+  const aliasEntries = []
+  validList.forEach(item => {
+    try {
+      const cidr = netmask2CIDR(item.subnet) || 24
+      aliasEntries.push(`${item.ip}/${cidr}`)
+    } catch (_) {}
+  })
+
+  const configContent = `ETH_ALIASES="${aliasEntries.join(' ')}"\n`
+  try {
+    fs.writeFileSync('/etc/default/rpanion-eth-alias', configContent)
+  } catch (e) {
+    try {
+      fs.writeFileSync('/tmp/rpanion-eth-alias', configContent)
+      execSync('sudo cp /tmp/rpanion-eth-alias /etc/default/rpanion-eth-alias && sudo chown rpanion:rpanion /etc/default/rpanion-eth-alias && rm -f /tmp/rpanion-eth-alias')
+    } catch (err2) {
+      console.error('Error writing /etc/default/rpanion-eth-alias: ' + err2)
+    }
+  }
+
+  // Remove old IPs that are no longer in validList
+  if (Array.isArray(oldAliases)) {
+    oldAliases.forEach(oldItem => {
+      if (!validList.some(newItem => newItem.ip === oldItem.ip)) {
+        try {
+          const cidr = netmask2CIDR(oldItem.subnet) || 24
+          execSync(`sudo ip addr del ${oldItem.ip}/${cidr} dev eth0 2>/dev/null || true`)
+        } catch (_) {}
+      }
+    })
+  }
+
+  // Add new IPs on eth0
+  aliasEntries.forEach(entry => {
+    try {
+      execSync(`sudo ip addr add ${entry} dev eth0 2>/dev/null || true`)
+    } catch (_) {}
+  })
+
+  return callback(null, 'OK')
+}
+
+function getEthernetAlias (callback) {
+  getEthernetAliases((err, list) => {
+    if (err) return callback(err)
+    if (list && list.length > 0) {
+      return callback(null, { enabled: true, ip: list[0].ip, subnet: list[0].subnet, active: list[0].active })
+    }
+    return callback(null, { enabled: false, ip: '', subnet: '255.255.255.0', active: false })
+  })
+}
+
+function setEthernetAlias (aliasSettings, callback) {
+  if (aliasSettings.enabled && aliasSettings.ip) {
+    return setEthernetAliases([{ ip: aliasSettings.ip, subnet: aliasSettings.subnet || '255.255.255.0' }], callback)
+  } else {
+    return setEthernetAliases([], callback)
+  }
+}
+
+function applyEthernetAlias () {
+  execFile('nmcli', ['-t', '-f', 'DEVICE,STATE', 'dev'], (err, stdout) => {
+    if (err || !(stdout || '').includes('eth0:connected')) {
+      return;
+    }
+    const aliases = settings.value('ethernet.aliases', [])
+    if (Array.isArray(aliases)) {
+      aliases.forEach(item => {
+        if (item.ip && item.subnet) {
+          try {
+            const cidr = netmask2CIDR(item.subnet) || 24
+            execFile('sudo', ['ip', 'addr', 'add', `${item.ip}/${cidr}`, 'dev', 'eth0'], () => {})
+          } catch (_) {}
+        }
+      })
+    }
+  });
+}
+
 module.exports = {
   getAdapters,
   getConnections,
@@ -596,5 +929,10 @@ module.exports = {
   deactivateConnection,
   getWirelessStatus,
   setWirelessStatus,
-  getWifiScan
+  getWifiScan,
+  getEthernetAlias,
+  setEthernetAlias,
+  getEthernetAliases,
+  setEthernetAliases,
+  applyEthernetAlias
 }

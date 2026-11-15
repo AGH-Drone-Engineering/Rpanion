@@ -45,7 +45,11 @@ rpanion ALL=(ALL) NOPASSWD: \
   /usr/sbin/pppd *, \
   /usr/sbin/iw dev * scan ap-force, \
   /usr/bin/pkill -SIGTERM pppd, \
-  /usr/bin/cat /var/lib/NetworkManager/dnsmasq-*
+  /usr/bin/cat /var/lib/NetworkManager/dnsmasq-*, \
+  /usr/sbin/ip *, \
+  /usr/bin/ip *, \
+  /sbin/ip *, \
+  /bin/ip *
 EOF
 
         chmod 440 /etc/sudoers.d/allow-vpn-control

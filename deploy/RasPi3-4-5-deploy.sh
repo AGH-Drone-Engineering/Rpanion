@@ -45,6 +45,10 @@ sudo systemctl enable NetworkManager
 ## Configure nmcli to not need sudo
 sudo sed -i.bak -e '/^\[main\]/aauth-polkit=false' /etc/NetworkManager/NetworkManager.conf
 
+## Configure Ethernet dual-profile
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$SCRIPT_DIR/configure_ethernet.sh"
+
 ## For wireguard. Must be installed last as it messes the DNS resolutions
 sudo apt install -y resolvconf
 
