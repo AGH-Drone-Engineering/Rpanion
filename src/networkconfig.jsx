@@ -8,7 +8,22 @@ import OverlayTrigger from 'react-bootstrap/OverlayTrigger';
 import Tooltip from 'react-bootstrap/Tooltip';
 import React from 'react';
 import IPAddressInput from './components/IPAddressInput.jsx';
+import EthernetConfigSection from './components/network/EthernetConfigSection.jsx';
+import NewConnectionModal from './components/network/NewConnectionModal.jsx';
 import './css/styles.css';
+
+async function requestApi(url, options = {}) {
+  const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const errorMsg = data.error || data.message || `Request failed (${res.status})`;
+    throw new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+  }
+  if (data.error) {
+    throw new Error(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
+  }
+  return data;
+}
 
 import basePage from './basePage.jsx';
 
@@ -535,7 +550,7 @@ class NetworkConfig extends basePage {
     }
 
     this.setState({ waiting: true });
-    fetch('/api/networkedit', {
+    requestApi('/api/networkedit', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -548,17 +563,13 @@ class NetworkConfig extends basePage {
       }, (key, value) => {
         if (value !== '') return value;
       })
-    }).then(response => response.json())
-      .then(data => {
-        if (data.error == null) {
-          this.setState({ waiting: false, infoMessage: 'Network Edited' });
-        } else {
-          this.setState({ waiting: false, error: 'Error editing network: ' + data.error });
-        }
+    })
+      .then(() => {
+        this.setState({ waiting: false, infoMessage: 'Network Edited' });
         this.handleStart();
       })
       .catch(error => {
-        this.setState({ waiting: false, error: 'Error editing network: ' + error });
+        this.setState({ waiting: false, error: 'Error editing network: ' + error.message });
       });
   };
 
@@ -787,7 +798,7 @@ class NetworkConfig extends basePage {
 
     this.setState({ waiting: true });
 
-    fetch('/api/networkadd', {
+    requestApi('/api/networkadd', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -802,21 +813,17 @@ class NetworkConfig extends basePage {
       }, (key, value) => {
         if (value !== '') return value;
       })
-    }).then(response => response.json())
-      .then(data => {
-        if (data.error == null) {
-          this.setState(prev => ({
-            waiting: false,
-            infoMessage: 'Network Added',
-            newConModal: { ...prev.newConModal, show: false }
-          }));
-          this.handleStart();
-        } else {
-          this.setState({ waiting: false, error: 'Error adding network: ' + data.error });
-        }
+    })
+      .then(() => {
+        this.setState(prev => ({
+          waiting: false,
+          infoMessage: 'Network Added',
+          newConModal: { ...prev.newConModal, show: false }
+        }));
+        this.handleStart();
       })
       .catch(error => {
-        this.setState({ waiting: false, error: 'Error adding network: ' + error });
+        this.setState({ waiting: false, error: 'Error adding network: ' + error.message });
       });
   };
 
@@ -825,7 +832,7 @@ class NetworkConfig extends basePage {
 
     if (this.state.netConnectionFilteredSelected) {
       this.setState({ waiting: true }, () => {
-        fetch('/api/networkactivate', {
+        requestApi('/api/networkactivate', {
           method: 'POST',
           headers: {
             'Accept': 'application/json',
@@ -835,17 +842,13 @@ class NetworkConfig extends basePage {
           body: JSON.stringify({
             conName: this.state.netConnectionFilteredSelected
           })
-        }).then(response => response.json())
-          .then(data => {
-            if (data.error == null) {
-              this.setState({ waiting: false, infoMessage: 'Network Activated' });
-            } else {
-              this.setState({ waiting: false, error: 'Error activating network: ' + data.error });
-            }
+        })
+          .then(() => {
+            this.setState({ waiting: false, infoMessage: 'Network Activated' });
             this.handleStart();
           })
           .catch(error => {
-            this.setState({ waiting: false, error: 'Error activating network: ' + error });
+            this.setState({ waiting: false, error: 'Error activating network: ' + error.message });
           });
       });
     }
@@ -873,7 +876,7 @@ class NetworkConfig extends basePage {
   deactivateConnection = () => {
     if (this.state.netConnectionFilteredSelected) {
       this.setState({ waiting: true }, () => {
-        fetch('/api/networkdeactivate', {
+        requestApi('/api/networkdeactivate', {
           method: 'POST',
           headers: {
             'Accept': 'application/json',
@@ -883,17 +886,13 @@ class NetworkConfig extends basePage {
           body: JSON.stringify({
             conName: this.state.netConnectionFilteredSelected
           })
-        }).then(response => response.json())
-          .then(data => {
-            if (data.error == null) {
-              this.setState({ waiting: false, infoMessage: 'Network Deactivated' });
-            } else {
-              this.setState({ waiting: false, error: 'Error deactivating network: ' + data.error });
-            }
+        })
+          .then(() => {
+            this.setState({ waiting: false, infoMessage: 'Network Deactivated' });
             this.handleStart();
           })
           .catch(error => {
-            this.setState({ waiting: false, error: 'Error deactivating network: ' + error });
+            this.setState({ waiting: false, error: 'Error deactivating network: ' + error.message });
           });
       });
     }
@@ -972,7 +971,7 @@ class NetworkConfig extends basePage {
     if (!this.state.netConnectionFilteredSelected) return;
 
     this.setState({ waiting: true }, () => {
-      fetch('/api/networkdelete', {
+      requestApi('/api/networkdelete', {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -982,19 +981,15 @@ class NetworkConfig extends basePage {
         body: JSON.stringify({
           conName: this.state.netConnectionFilteredSelected
         })
-      }).then(response => response.json())
-        .then(data => {
-          if (data.error == null) {
-            this.setState({ waiting: false, infoMessage: 'Network Deleted' });
-          } else {
-            this.setState({ waiting: false, error: 'Error deleting network: ' + data.error });
-          }
+      })
+        .then(() => {
+          this.setState({ waiting: false, infoMessage: 'Network Deleted' });
           setTimeout(() => {
             this.handleStart();
           }, 500);
         })
         .catch(error => {
-          this.setState({ waiting: false, error: 'Error deleting network: ' + error });
+          this.setState({ waiting: false, error: 'Error deleting network: ' + error.message });
         });
     });
   };
@@ -1057,7 +1052,7 @@ class NetworkConfig extends basePage {
 
   setWirelessStatus = (value) => {
     this.setState({ waiting: true }, () => {
-      fetch('/api/setwirelessstatus', {
+      requestApi('/api/setwirelessstatus', {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -1067,13 +1062,13 @@ class NetworkConfig extends basePage {
         body: JSON.stringify({
           status: value
         })
-      }).then(response => response.json())
+      })
         .then(status => {
           this.setState({ waiting: false, ...status });
           this.handleStart();
         })
         .catch(error => {
-          this.setState({ waiting: false, error: 'Error toggling wireless: ' + error });
+          this.setState({ waiting: false, error: 'Error toggling wireless: ' + error.message });
         });
     });
   };
@@ -1232,163 +1227,23 @@ class NetworkConfig extends basePage {
         </div>
 
         {isEthernet ? (
-          <Accordion className="mt-4 eth-accordion" defaultActiveKey="0">
-            <Accordion.Item eventKey="0">
-              <Accordion.Header>
-                Edit Connection: <strong className="ms-1">
-                  {currentEthConn === 'server' && 'DHCP Server'}
-                  {currentEthConn === 'client' && 'DHCP Client'}
-                  {currentEthConn === 'static' && 'Static IP'}
-                </strong>
-                <OverlayTrigger
-                  placement="top"
-                  overlay={
-                    <Tooltip id="eth-help-tooltip">
-                      {currentEthConn === 'server' && 'DHCP server running when no external router is connected.'}
-                      {currentEthConn === 'client' && 'Automatically obtains an IP address via DHCP when connected to an external router or network.'}
-                      {currentEthConn === 'static' && 'Assign secondary static IP addresses to eth0 in the background (e.g. for cameras or payload devices).'}
-                    </Tooltip>
-                  }
-                >
-                  <span
-                    className="badge rounded-pill bg-light text-secondary border ms-auto"
-                    style={{ cursor: 'help', fontSize: '0.75rem', padding: '3px 7px' }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    ?
-                  </span>
-                </OverlayTrigger>
-              </Accordion.Header>
-              <Accordion.Body>
-                {currentEthConn === 'server' && (
-                  <div>
-                    <div className="form-group row" style={{ marginBottom: '5px' }}>
-                      <label className="col-sm-4 col-form-label">Gateway IP</label>
-                      <div className="col-sm-8">
-                        <IPAddressInput
-                          name="ethServerIp"
-                          value={this.state.ethServerSettings.ipaddress}
-                          onChange={(e) => this.setState({
-                            ethServerSettings: { ...this.state.ethServerSettings, ipaddress: e.target.value }
-                          })}
-                        />
-                      </div>
-                    </div>
-                    <div className="form-group row" style={{ marginBottom: '5px' }}>
-                      <label className="col-sm-4 col-form-label">Subnet Mask</label>
-                      <div className="col-sm-8">
-                        <IPAddressInput
-                          name="ethServerSubnet"
-                          value={this.state.ethServerSettings.subnet}
-                          onChange={(e) => this.setState({
-                            ethServerSettings: { ...this.state.ethServerSettings, subnet: e.target.value }
-                          })}
-                        />
-                      </div>
-                    </div>
-                    <div className="form-group row" style={{ marginBottom: '5px' }}>
-                      <label className="col-sm-4 col-form-label"></label>
-                      <div className="col-sm-8">
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          onClick={this.handleSaveEthernetServer}
-                          disabled={this.state.ethServerSaving}
-                        >
-                          {this.state.ethServerSaving ? 'Saving...' : 'Save Changes'}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {currentEthConn === 'client' && (
-                  <div>
-                    <p className="text-muted mb-0">
-                      Nothing to configure
-                    </p>
-                  </div>
-                )}
-
-                {currentEthConn === 'static' && (
-                  <div>
-                    {this.state.ethAliases.length > 0 && (
-                      <Table striped bordered hover size="sm" className="mb-4">
-                        <thead>
-                          <tr>
-                            <th>IP Address</th>
-                            <th>Subnet Mask</th>
-                            <th>Status</th>
-                            <th style={{ width: '80px' }}>Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {this.state.ethAliases.map((alias) => (
-                            <tr key={alias.id}>
-                              <td>{alias.ip}</td>
-                              <td>{alias.subnet}</td>
-                              <td>
-                                {alias.active ? (
-                                  <span className="badge bg-success">Active</span>
-                                ) : (
-                                  <span className="badge bg-secondary">Standby</span>
-                                )}
-                              </td>
-                              <td>
-                                <Button
-                                  size="sm"
-                                  variant="outline-danger"
-                                  onClick={() => this.promptDeleteAlias(alias)}
-                                  disabled={this.state.ethAliasesSaving}
-                                >
-                                  Delete
-                                </Button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </Table>
-                    )}
-
-                    <h4>Add Static IP Alias</h4>
-                    <div className="form-group row" style={{ marginBottom: '5px' }}>
-                      <label className="col-sm-4 col-form-label">IP Address</label>
-                      <div className="col-sm-8">
-                        <IPAddressInput
-                          name="newAliasIp"
-                          value={this.state.newAliasIp}
-                          onChange={(e) => this.setState({ newAliasIp: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                    <div className="form-group row" style={{ marginBottom: '5px' }}>
-                      <label className="col-sm-4 col-form-label">Subnet Mask</label>
-                      <div className="col-sm-8">
-                        <IPAddressInput
-                          name="newAliasSubnet"
-                          value={this.state.newAliasSubnet}
-                          onChange={(e) => this.setState({ newAliasSubnet: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                    <div className="form-group row" style={{ marginBottom: '5px' }}>
-                      <label className="col-sm-4 col-form-label"></label>
-                      <div className="col-sm-8">
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          onClick={this.handleAddAlias}
-                          disabled={this.state.ethAliasesSaving || !this.state.newAliasIp}
-                        >
-                          {this.state.ethAliasesSaving ? 'Adding...' : 'Add Static IP'}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </Accordion.Body>
-            </Accordion.Item>
-          </Accordion>
+          <EthernetConfigSection
+            currentEthConn={currentEthConn}
+            ethServerSettings={this.state.ethServerSettings}
+            ethServerSaving={this.state.ethServerSaving}
+            onServerSettingsChange={(field, val) => this.setState(prev => ({
+              ethServerSettings: { ...prev.ethServerSettings, [field]: val }
+            }))}
+            onSaveServer={this.handleSaveEthernetServer}
+            ethAliases={this.state.ethAliases}
+            newAliasIp={this.state.newAliasIp}
+            newAliasSubnet={this.state.newAliasSubnet}
+            ethAliasesSaving={this.state.ethAliasesSaving}
+            onNewAliasIpChange={(val) => this.setState({ newAliasIp: val })}
+            onNewAliasSubnetChange={(val) => this.setState({ newAliasSubnet: val })}
+            onAddAlias={this.handleAddAlias}
+            onPromptDeleteAlias={this.promptDeleteAlias}
+          />
         ) : (
           <div>
             {selectedDevice && selectedDevice.type === 'wifi' && (
@@ -1752,346 +1607,22 @@ class NetworkConfig extends basePage {
           </div>
         )}
 
-        <Modal
-          show={this.state.newConModal.show}
-          onHide={this.closeNewConModal}
-          size={this.state.newConModal.conType === 'wifi' && this.state.newConModal.step === 'select' ? 'lg' : 'default'}
-        >
-          <Modal.Header closeButton>
-            <Modal.Title>
-              {this.state.newConModal.conType === 'wifi' && this.state.newConModal.step === 'select' && 'Select Wi-Fi Network'}
-              {this.state.newConModal.conType === 'wifi' && this.state.newConModal.step === 'configure' && (this.state.newConModal.mode === 'ap' ? 'New Wi-Fi Hotspot' : 'New Wi-Fi Connection')}
-              {this.state.newConModal.conType !== 'wifi' && 'New Wired Connection'}
-            </Modal.Title>
-          </Modal.Header>
-
-          <Modal.Body>
-            {this.state.newConModal.conType === 'wifi' && this.state.newConModal.step === 'select' ? (
-              <div>
-                <p>Select an available WiFi network to connect, or create a hotspot.</p>
-                <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
-                  <Table striped bordered hover size="sm">
-                    <thead>
-                      <tr>
-                        <th>SSID</th>
-                        <th>Signal</th>
-                        <th>Security</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {this.state.detWifi && this.state.detWifi.length > 0 ? (
-                        this.state.detWifi.map((item, index) => (
-                          <tr
-                            key={index}
-                            onClick={() => this.selectScannedWifi(item.ssid, item.security)}
-                            style={{ cursor: 'pointer' }}
-                            title="Click to configure"
-                          >
-                            <td className="fw-semibold text-primary">{item.ssid}</td>
-                            <td>{typeof item.signal === 'number' ? (item.signal <= 0 ? `${item.signal} dBm` : `${item.signal}%`) : (item.signal || 'N/A')}</td>
-                            <td>{item.security || 'Open'}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan="3" className="text-center text-muted py-3">
-                            No networks found. Try refreshing or enter network manually below.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </Table>
-                </div>
-              </div>
-            ) : (
-              <Form onSubmit={this.submitNewConnection}>
-                <div className="form-group row" style={{ marginBottom: '10px' }}>
-                  <label className="col-sm-4 col-form-label">Connection Name</label>
-                  <div className="col-sm-8">
-                    <Form.Control
-                      name="conName"
-                      type="text"
-                      value={this.state.newConModal.conName}
-                      onChange={this.newConChangeHandler}
-                      placeholder="e.g. MyNetwork"
-                      required
-                      autoFocus
-                    />
-                  </div>
-                </div>
-
-                {this.state.newConModal.mode === 'infrastructure' && (
-                  <>
-                    <div className="form-group row" style={{ marginBottom: '10px' }}>
-                      <label className="col-sm-4 col-form-label">SSID Name</label>
-                      <div className="col-sm-8">
-                        <Form.Control
-                          name="ssid"
-                          type="text"
-                          value={this.state.newConModal.ssid}
-                          onChange={this.newConChangeHandler}
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    <div className="form-group row" style={{ marginBottom: '10px' }}>
-                      <label className="col-sm-4 col-form-label">Security</label>
-                      <div className="col-sm-8">
-                        <Form.Select
-                          name="wpaType"
-                          value={this.state.newConModal.wpaType}
-                          onChange={this.newConChangeHandler}
-                        >
-                          {this.state.wpaTypes.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </Form.Select>
-                      </div>
-                    </div>
-
-                    {this.state.newConModal.wpaType !== 'none' && (
-                      <div className="form-group row" style={{ marginBottom: '10px' }}>
-                        <label className="col-sm-4 col-form-label">Password</label>
-                        <div className="col-sm-8">
-                          <Form.Control
-                            name="password"
-                            type={this.state.newConModal.showPW ? 'text' : 'password'}
-                            value={this.state.newConModal.password}
-                            onChange={this.newConChangeHandler}
-                            isInvalid={
-                              (this.state.newConModal.password || '').length < 8 ||
-                              (this.state.newConModal.password || '').length > 63
-                            }
-                            placeholder="8-63 characters"
-                          />
-                          <Form.Control.Feedback type="invalid">
-                            Password must be between 8 and 63 characters long.
-                          </Form.Control.Feedback>
-                          <Form.Check
-                            type="checkbox"
-                            label="Show Password"
-                            checked={this.state.newConModal.showPW}
-                            onChange={this.newConTogglePassword}
-                            style={{ marginTop: '5px' }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {this.state.newConModal.mode === 'ap' && (
-                  <>
-                    <div className="form-group row" style={{ marginBottom: '10px' }}>
-                      <label className="col-sm-4 col-form-label">SSID Name</label>
-                      <div className="col-sm-8">
-                        <Form.Control
-                          name="ssid"
-                          type="text"
-                          value={this.state.newConModal.ssid}
-                          onChange={this.newConChangeHandler}
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    <div className="form-group row" style={{ marginBottom: '10px' }}>
-                      <label className="col-sm-4 col-form-label">Band</label>
-                      <div className="col-sm-8">
-                        <Form.Select
-                          name="band"
-                          value={this.state.newConModal.band}
-                          onChange={this.newConChangeHandler}
-                        >
-                          {this.state.bandTypes.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </Form.Select>
-                      </div>
-                    </div>
-
-                    <div className="form-group row" style={{ marginBottom: '10px' }}>
-                      <label className="col-sm-4 col-form-label">Channel</label>
-                      <div className="col-sm-8">
-                        <Form.Select
-                          name="channel"
-                          value={this.state.newConModal.channel}
-                          onChange={this.newConChangeHandler}
-                        >
-                          {this.getValidChannelsForModal().map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </Form.Select>
-                      </div>
-                    </div>
-
-                    <div className="form-group row" style={{ marginBottom: '10px' }}>
-                      <label className="col-sm-4 col-form-label">Security</label>
-                      <div className="col-sm-8">
-                        <Form.Select
-                          name="wpaType"
-                          value={this.state.newConModal.wpaType}
-                          onChange={this.newConChangeHandler}
-                        >
-                          {this.state.wpaTypes.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </Form.Select>
-                      </div>
-                    </div>
-
-                    {this.state.newConModal.wpaType !== 'none' && (
-                      <div className="form-group row" style={{ marginBottom: '10px' }}>
-                        <label className="col-sm-4 col-form-label">Password</label>
-                        <div className="col-sm-8">
-                          <Form.Control
-                            name="password"
-                            type={this.state.newConModal.showPW ? 'text' : 'password'}
-                            value={this.state.newConModal.password}
-                            onChange={this.newConChangeHandler}
-                            isInvalid={
-                              (this.state.newConModal.password || '').length < 8 ||
-                              (this.state.newConModal.password || '').length > 63
-                            }
-                            placeholder="8-63 characters"
-                          />
-                          <Form.Control.Feedback type="invalid">
-                            Password must be between 8 and 63 characters long.
-                          </Form.Control.Feedback>
-                          <Form.Check
-                            type="checkbox"
-                            label="Show Password"
-                            checked={this.state.newConModal.showPW}
-                            onChange={this.newConTogglePassword}
-                            style={{ marginTop: '5px' }}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="form-group row" style={{ marginBottom: '10px' }}>
-                      <label className="col-sm-4 col-form-label">Starting IP</label>
-                      <div className="col-sm-8">
-                        <IPAddressInput
-                          name="ipaddress"
-                          value={this.state.newConModal.ipaddress || ''}
-                          onChange={this.newConChangeHandler}
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {this.state.newConModal.conType !== 'wifi' && (
-                  <>
-                    <div className="form-group row" style={{ marginBottom: '10px' }}>
-                      <label className="col-sm-4 col-form-label">IP Address Type</label>
-                      <div className="col-sm-8">
-                        <div className="form-check">
-                          <input
-                            className="form-check-input"
-                            type="radio"
-                            name="ipaddresstype"
-                            value="auto"
-                            onChange={this.newConChangeHandler}
-                            checked={this.state.newConModal.ipaddresstype === 'auto'}
-                          />
-                          <label className="form-check-label">DHCP Client</label>
-                        </div>
-                        <div className="form-check">
-                          <input
-                            className="form-check-input"
-                            type="radio"
-                            name="ipaddresstype"
-                            value="manual"
-                            onChange={this.newConChangeHandler}
-                            checked={this.state.newConModal.ipaddresstype === 'manual'}
-                          />
-                          <label className="form-check-label">Static IP</label>
-                        </div>
-                        <div className="form-check">
-                          <input
-                            className="form-check-input"
-                            type="radio"
-                            name="ipaddresstype"
-                            value="shared"
-                            onChange={this.newConChangeHandler}
-                            checked={this.state.newConModal.ipaddresstype === 'shared'}
-                          />
-                          <label className="form-check-label">DHCP Server</label>
-                        </div>
-                      </div>
-                    </div>
-
-                    {this.state.newConModal.ipaddresstype !== 'auto' && (
-                      <>
-                        <div className="form-group row" style={{ marginBottom: '10px' }}>
-                          <label className="col-sm-4 col-form-label">
-                            {this.state.newConModal.ipaddresstype === 'shared' ? 'Gateway IP' : 'IP Address'}
-                          </label>
-                          <div className="col-sm-8">
-                            <IPAddressInput
-                              name="ipaddress"
-                              value={this.state.newConModal.ipaddress || ''}
-                              onChange={this.newConChangeHandler}
-                            />
-                          </div>
-                        </div>
-                        <div className="form-group row" style={{ marginBottom: '10px' }}>
-                          <label className="col-sm-4 col-form-label">Subnet Mask</label>
-                          <div className="col-sm-8">
-                            <IPAddressInput
-                              name="subnet"
-                              value={this.state.newConModal.subnet || ''}
-                              onChange={this.newConChangeHandler}
-                            />
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </>
-                )}
-
-                <div className="form-group row" style={{ marginBottom: '10px' }}>
-                  <label className="col-sm-4 col-form-label">Priority</label>
-                  <div className="col-sm-8">
-                    <Form.Control
-                      name="priority"
-                      type="number"
-                      value={this.state.newConModal.priority !== undefined ? this.state.newConModal.priority : ''}
-                      onChange={this.newConChangeHandler}
-                    />
-                  </div>
-                </div>
-              </Form>
-            )}
-          </Modal.Body>
-
-          <Modal.Footer>
-            {this.state.newConModal.conType === 'wifi' && this.state.newConModal.step === 'select' ? (
-              <>
-                <Button variant="outline-primary" onClick={this.selectCreateHotspot}>Create Wi-Fi Hotspot</Button>
-                <Button variant="outline-secondary" onClick={this.selectManualWifi}>Enter SSID Manually</Button>
-                <Button variant="outline-secondary" onClick={this.refreshWifi}>Refresh List</Button>
-                <Button variant="secondary" onClick={this.closeNewConModal}>Cancel</Button>
-              </>
-            ) : (
-              <>
-                {this.state.newConModal.conType === 'wifi' && (
-                  <Button
-                    variant="outline-secondary"
-                    onClick={() => this.setState(prev => ({ newConModal: { ...prev.newConModal, step: 'select' } }))}
-                  >
-                    &larr; Back
-                  </Button>
-                )}
-                <Button variant="primary" onClick={this.submitNewConnection}>Create Connection</Button>
-                <Button variant="secondary" onClick={this.closeNewConModal}>Cancel</Button>
-              </>
-            )}
-          </Modal.Footer>
-        </Modal>
+        <NewConnectionModal
+          modal={this.state.newConModal}
+          onClose={this.closeNewConModal}
+          detWifi={this.state.detWifi}
+          wpaTypes={this.state.wpaTypes}
+          bandTypes={this.state.bandTypes}
+          validChannels={this.getValidChannelsForModal()}
+          onChange={this.newConChangeHandler}
+          onTogglePassword={this.newConTogglePassword}
+          onSelectScannedWifi={this.selectScannedWifi}
+          onSelectCreateHotspot={this.selectCreateHotspot}
+          onSelectManualWifi={this.selectManualWifi}
+          onRefreshWifi={this.refreshWifi}
+          onBack={() => this.setState(prev => ({ newConModal: { ...prev.newConModal, step: 'select' } }))}
+          onSubmit={this.submitNewConnection}
+        />
 
         <Modal show={this.state.showModalDelete} onHide={this.handleCloseModalDelete}>
           <Modal.Header closeButton>
