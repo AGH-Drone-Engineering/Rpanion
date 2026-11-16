@@ -1,49 +1,95 @@
-import React from 'react';
+import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import Modal from 'react-bootstrap/Modal';
 import Button from 'react-bootstrap/Button';
 import Form from 'react-bootstrap/Form';
 import Table from 'react-bootstrap/Table';
 import IPAddressInput from '../IPAddressInput.jsx';
+import { FormRow, PasswordField, IpTypeRadios } from './FormFields.jsx';
+import {
+  BAND_TYPES,
+  WPA_TYPES,
+  applyHotspot,
+  applyManualWifi,
+  applyNewConChange,
+  applyScannedWifi,
+  channelsForBand,
+  makeNewConModal,
+  toNewConSettings,
+  validateNewConnection
+} from './networkModel.js';
 
-function NewConnectionModal({
-  modal,
-  onClose,
-  detWifi,
-  wpaTypes,
-  bandTypes,
-  validChannels,
-  onChange,
-  onTogglePassword,
-  onSelectScannedWifi,
-  onSelectCreateHotspot,
-  onSelectManualWifi,
-  onRefreshWifi,
-  onBack,
-  onSubmit
-}) {
-  if (!modal || !modal.show) {
+const ID = 'new-con';
+
+// Owns the draft of a new profile. The parent remounts it (via `key`) for each
+// opening so every opening starts from makeNewConModal(conType).
+function NewConnectionModal({ show, conType, device, detWifi, onClose, onCreate, onError, onRefreshWifi }) {
+  const [draft, setDraft] = useState(() => makeNewConModal(conType));
+
+  if (!show) {
     return null;
   }
 
-  const isWifi = modal.conType === 'wifi';
-  const isSelectStep = isWifi && modal.step === 'select';
+  const isWifi = draft.conType === 'wifi';
+  const isSelectStep = isWifi && draft.step === 'select';
 
   let title = 'New Wired Connection';
   if (isWifi) {
     if (isSelectStep) {
       title = 'Select Wi-Fi Network';
     } else {
-      title = modal.mode === 'ap' ? 'New Wi-Fi Hotspot' : 'New Wi-Fi Connection';
+      title = draft.mode === 'ap' ? 'New Wi-Fi Hotspot' : 'New Wi-Fi Connection';
     }
   }
 
+  const onChange = (event) => {
+    const { name, value } = event.target;
+    setDraft(prev => applyNewConChange(prev, name, value));
+  };
+  const setShowPW = (checked) => setDraft(prev => ({ ...prev, showPW: checked }));
+  const selectScanned = (item) => setDraft(prev => applyScannedWifi(prev, item.ssid, item.security));
+
+  const submit = (event) => {
+    if (event) event.preventDefault();
+    const error = validateNewConnection(draft);
+    if (error) {
+      onError(error);
+      return;
+    }
+    onCreate(draft.conName.trim(), toNewConSettings(draft));
+  };
+
+  const wpaSelect = (
+    <FormRow label="Security" htmlFor={`${ID}-wpatype`} marginBottom="10px">
+      <Form.Select id={`${ID}-wpatype`} name="wpaType" value={draft.wpaType} onChange={onChange}>
+        {WPA_TYPES.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </Form.Select>
+    </FormRow>
+  );
+
+  const passwordRow = draft.wpaType !== 'none' && (
+    <FormRow label="Password" htmlFor={`${ID}-password`} marginBottom="10px">
+      <PasswordField
+        id={`${ID}-password`}
+        value={draft.password}
+        onChange={onChange}
+        show={draft.showPW}
+        onToggleShow={setShowPW}
+        placeholder="8-63 characters"
+      />
+    </FormRow>
+  );
+
+  const ssidRow = (
+    <FormRow label="SSID Name" htmlFor={`${ID}-ssid`} marginBottom="10px">
+      <Form.Control id={`${ID}-ssid`} name="ssid" type="text" value={draft.ssid} onChange={onChange} required />
+    </FormRow>
+  );
+
   return (
-    <Modal
-      show={modal.show}
-      onHide={onClose}
-      size={isSelectStep ? 'lg' : undefined}
-    >
+    <Modal show={show} onHide={onClose} size={isSelectStep ? 'lg' : undefined}>
       <Modal.Header closeButton>
         <Modal.Title>{title}</Modal.Title>
       </Modal.Header>
@@ -63,19 +109,23 @@ function NewConnectionModal({
                 </thead>
                 <tbody>
                   {detWifi && detWifi.length > 0 ? (
-                    detWifi.map((item, index) => (
+                    detWifi.map(item => (
                       <tr
-                        key={index}
-                        onClick={() => onSelectScannedWifi(item.ssid, item.security)}
+                        key={item.ssid}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => selectScanned(item)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            selectScanned(item);
+                          }
+                        }}
                         style={{ cursor: 'pointer' }}
                         title="Click to configure"
                       >
                         <td className="fw-semibold text-primary">{item.ssid}</td>
-                        <td>
-                          {typeof item.signal === 'number'
-                            ? (item.signal <= 0 ? `${item.signal} dBm` : `${item.signal}%`)
-                            : (item.signal || 'N/A')}
-                        </td>
+                        <td>{`${item.signal}%`}</td>
                         <td>{item.security || 'Open'}</td>
                       </tr>
                     ))
@@ -91,266 +141,78 @@ function NewConnectionModal({
             </div>
           </div>
         ) : (
-          <Form onSubmit={onSubmit}>
-            <div className="form-group row" style={{ marginBottom: '10px' }}>
-              <label className="col-sm-4 col-form-label">Connection Name</label>
-              <div className="col-sm-8">
-                <Form.Control
-                  name="conName"
-                  type="text"
-                  value={modal.conName}
-                  onChange={onChange}
-                  placeholder="e.g. MyNetwork"
-                  required
-                  autoFocus
-                />
-              </div>
-            </div>
+          <Form onSubmit={submit}>
+            <FormRow label="Connection Name" htmlFor={`${ID}-name`} marginBottom="10px">
+              <Form.Control
+                id={`${ID}-name`}
+                name="conName"
+                type="text"
+                value={draft.conName}
+                onChange={onChange}
+                placeholder="e.g. MyNetwork"
+                required
+                autoFocus
+              />
+            </FormRow>
 
-            {modal.mode === 'infrastructure' && (
+            {draft.mode === 'infrastructure' && (
               <>
-                <div className="form-group row" style={{ marginBottom: '10px' }}>
-                  <label className="col-sm-4 col-form-label">SSID Name</label>
-                  <div className="col-sm-8">
-                    <Form.Control
-                      name="ssid"
-                      type="text"
-                      value={modal.ssid}
-                      onChange={onChange}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="form-group row" style={{ marginBottom: '10px' }}>
-                  <label className="col-sm-4 col-form-label">Security</label>
-                  <div className="col-sm-8">
-                    <Form.Select
-                      name="wpaType"
-                      value={modal.wpaType}
-                      onChange={onChange}
-                    >
-                      {wpaTypes.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </Form.Select>
-                  </div>
-                </div>
-
-                {modal.wpaType !== 'none' && (
-                  <div className="form-group row" style={{ marginBottom: '10px' }}>
-                    <label className="col-sm-4 col-form-label">Password</label>
-                    <div className="col-sm-8">
-                      <Form.Control
-                        name="password"
-                        type={modal.showPW ? 'text' : 'password'}
-                        value={modal.password}
-                        onChange={onChange}
-                        isInvalid={
-                          (modal.password || '').length < 8 ||
-                          (modal.password || '').length > 63
-                        }
-                        placeholder="8-63 characters"
-                      />
-                      <Form.Control.Feedback type="invalid">
-                        Password must be between 8 and 63 characters long.
-                      </Form.Control.Feedback>
-                      <Form.Check
-                        type="checkbox"
-                        label="Show Password"
-                        checked={modal.showPW}
-                        onChange={onTogglePassword}
-                        style={{ marginTop: '5px' }}
-                      />
-                    </div>
-                  </div>
-                )}
+                {ssidRow}
+                {wpaSelect}
+                {passwordRow}
               </>
             )}
 
-            {modal.mode === 'ap' && (
+            {draft.mode === 'ap' && (
               <>
-                <div className="form-group row" style={{ marginBottom: '10px' }}>
-                  <label className="col-sm-4 col-form-label">SSID Name</label>
-                  <div className="col-sm-8">
-                    <Form.Control
-                      name="ssid"
-                      type="text"
-                      value={modal.ssid}
-                      onChange={onChange}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="form-group row" style={{ marginBottom: '10px' }}>
-                  <label className="col-sm-4 col-form-label">Band</label>
-                  <div className="col-sm-8">
-                    <Form.Select
-                      name="band"
-                      value={modal.band}
-                      onChange={onChange}
-                    >
-                      {bandTypes.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </Form.Select>
-                  </div>
-                </div>
-
-                <div className="form-group row" style={{ marginBottom: '10px' }}>
-                  <label className="col-sm-4 col-form-label">Channel</label>
-                  <div className="col-sm-8">
-                    <Form.Select
-                      name="channel"
-                      value={modal.channel}
-                      onChange={onChange}
-                    >
-                      {validChannels.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </Form.Select>
-                  </div>
-                </div>
-
-                <div className="form-group row" style={{ marginBottom: '10px' }}>
-                  <label className="col-sm-4 col-form-label">Security</label>
-                  <div className="col-sm-8">
-                    <Form.Select
-                      name="wpaType"
-                      value={modal.wpaType}
-                      onChange={onChange}
-                    >
-                      {wpaTypes.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </Form.Select>
-                  </div>
-                </div>
-
-                {modal.wpaType !== 'none' && (
-                  <div className="form-group row" style={{ marginBottom: '10px' }}>
-                    <label className="col-sm-4 col-form-label">Password</label>
-                    <div className="col-sm-8">
-                      <Form.Control
-                        name="password"
-                        type={modal.showPW ? 'text' : 'password'}
-                        value={modal.password}
-                        onChange={onChange}
-                        isInvalid={
-                          (modal.password || '').length < 8 ||
-                          (modal.password || '').length > 63
-                        }
-                        placeholder="8-63 characters"
-                      />
-                      <Form.Control.Feedback type="invalid">
-                        Password must be between 8 and 63 characters long.
-                      </Form.Control.Feedback>
-                      <Form.Check
-                        type="checkbox"
-                        label="Show Password"
-                        checked={modal.showPW}
-                        onChange={onTogglePassword}
-                        style={{ marginTop: '5px' }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="form-group row" style={{ marginBottom: '10px' }}>
-                  <label className="col-sm-4 col-form-label">Starting IP</label>
-                  <div className="col-sm-8">
-                    <IPAddressInput
-                      name="ipaddress"
-                      value={modal.ipaddress || ''}
-                      onChange={onChange}
-                    />
-                  </div>
-                </div>
+                {ssidRow}
+                <FormRow label="Band" htmlFor={`${ID}-band`} marginBottom="10px">
+                  <Form.Select id={`${ID}-band`} name="band" value={draft.band} onChange={onChange}>
+                    {BAND_TYPES.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </Form.Select>
+                </FormRow>
+                <FormRow label="Channel" htmlFor={`${ID}-channel`} marginBottom="10px">
+                  <Form.Select id={`${ID}-channel`} name="channel" value={draft.channel} onChange={onChange}>
+                    {channelsForBand(device, draft.band).map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </Form.Select>
+                </FormRow>
+                {wpaSelect}
+                {passwordRow}
+                <FormRow label="Starting IP" htmlFor={`${ID}-apip-0`} marginBottom="10px">
+                  <IPAddressInput idPrefix={`${ID}-apip`} name="ipaddress" value={draft.ipaddress || ''} onChange={onChange} />
+                </FormRow>
               </>
             )}
 
-            {modal.conType !== 'wifi' && (
+            {!isWifi && (
               <>
-                <div className="form-group row" style={{ marginBottom: '10px' }}>
-                  <label className="col-sm-4 col-form-label">IP Address Type</label>
-                  <div className="col-sm-8">
-                    <div className="form-check">
-                      <input
-                        className="form-check-input"
-                        type="radio"
-                        name="ipaddresstype"
-                        value="auto"
-                        onChange={onChange}
-                        checked={modal.ipaddresstype === 'auto'}
-                      />
-                      <label className="form-check-label">DHCP Client</label>
-                    </div>
-                    <div className="form-check">
-                      <input
-                        className="form-check-input"
-                        type="radio"
-                        name="ipaddresstype"
-                        value="manual"
-                        onChange={onChange}
-                        checked={modal.ipaddresstype === 'manual'}
-                      />
-                      <label className="form-check-label">Static IP</label>
-                    </div>
-                    <div className="form-check">
-                      <input
-                        className="form-check-input"
-                        type="radio"
-                        name="ipaddresstype"
-                        value="shared"
-                        onChange={onChange}
-                        checked={modal.ipaddresstype === 'shared'}
-                      />
-                      <label className="form-check-label">DHCP Server</label>
-                    </div>
-                  </div>
-                </div>
-
-                {modal.ipaddresstype !== 'auto' && (
+                <FormRow label="IP Address Type" labelId={`${ID}-iptype-label`} marginBottom="10px">
+                  <IpTypeRadios idPrefix={`${ID}-iptype`} value={draft.ipaddresstype} onChange={onChange} />
+                </FormRow>
+                {draft.ipaddresstype !== 'auto' && (
                   <>
-                    <div className="form-group row" style={{ marginBottom: '10px' }}>
-                      <label className="col-sm-4 col-form-label">
-                        {modal.ipaddresstype === 'shared' ? 'Gateway IP' : 'IP Address'}
-                      </label>
-                      <div className="col-sm-8">
-                        <IPAddressInput
-                          name="ipaddress"
-                          value={modal.ipaddress || ''}
-                          onChange={onChange}
-                        />
-                      </div>
-                    </div>
-                    <div className="form-group row" style={{ marginBottom: '10px' }}>
-                      <label className="col-sm-4 col-form-label">Subnet Mask</label>
-                      <div className="col-sm-8">
-                        <IPAddressInput
-                          name="subnet"
-                          value={modal.subnet || ''}
-                          onChange={onChange}
-                        />
-                      </div>
-                    </div>
+                    <FormRow
+                      label={draft.ipaddresstype === 'shared' ? 'Gateway IP' : 'IP Address'}
+                      htmlFor={`${ID}-ipaddress-0`}
+                      marginBottom="10px"
+                    >
+                      <IPAddressInput idPrefix={`${ID}-ipaddress`} name="ipaddress" value={draft.ipaddress || ''} onChange={onChange} />
+                    </FormRow>
+                    <FormRow label="Subnet Mask" htmlFor={`${ID}-subnet-0`} marginBottom="10px">
+                      <IPAddressInput idPrefix={`${ID}-subnet`} name="subnet" value={draft.subnet || ''} onChange={onChange} />
+                    </FormRow>
                   </>
                 )}
               </>
             )}
 
-            <div className="form-group row" style={{ marginBottom: '10px' }}>
-              <label className="col-sm-4 col-form-label">Priority</label>
-              <div className="col-sm-8">
-                <Form.Control
-                  name="priority"
-                  type="number"
-                  value={modal.priority !== undefined ? modal.priority : ''}
-                  onChange={onChange}
-                />
-              </div>
-            </div>
+            <FormRow label="Priority" htmlFor={`${ID}-priority`} marginBottom="10px">
+              <Form.Control id={`${ID}-priority`} name="priority" type="number" value={draft.priority} onChange={onChange} />
+            </FormRow>
           </Form>
         )}
       </Modal.Body>
@@ -358,19 +220,19 @@ function NewConnectionModal({
       <Modal.Footer>
         {isSelectStep ? (
           <>
-            <Button variant="outline-primary" onClick={onSelectCreateHotspot}>Create Wi-Fi Hotspot</Button>
-            <Button variant="outline-secondary" onClick={onSelectManualWifi}>Enter SSID Manually</Button>
+            <Button variant="outline-primary" onClick={() => setDraft(prev => applyHotspot(prev))}>Create Wi-Fi Hotspot</Button>
+            <Button variant="outline-secondary" onClick={() => setDraft(prev => applyManualWifi(prev))}>Enter SSID Manually</Button>
             <Button variant="outline-secondary" onClick={onRefreshWifi}>Refresh List</Button>
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
           </>
         ) : (
           <>
             {isWifi && (
-              <Button variant="outline-secondary" onClick={onBack}>
+              <Button variant="outline-secondary" onClick={() => setDraft(prev => ({ ...prev, step: 'select' }))}>
                 &larr; Back
               </Button>
             )}
-            <Button variant="primary" onClick={onSubmit}>Create Connection</Button>
+            <Button variant="primary" onClick={submit}>Create Connection</Button>
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
           </>
         )}
@@ -380,36 +242,14 @@ function NewConnectionModal({
 }
 
 NewConnectionModal.propTypes = {
-  modal: PropTypes.shape({
-    show: PropTypes.bool,
-    conType: PropTypes.string,
-    step: PropTypes.string,
-    conName: PropTypes.string,
-    mode: PropTypes.string,
-    ssid: PropTypes.string,
-    wpaType: PropTypes.string,
-    password: PropTypes.string,
-    showPW: PropTypes.bool,
-    ipaddresstype: PropTypes.string,
-    ipaddress: PropTypes.string,
-    subnet: PropTypes.string,
-    band: PropTypes.string,
-    channel: PropTypes.string,
-    priority: PropTypes.oneOfType([PropTypes.number, PropTypes.string])
-  }).isRequired,
-  onClose: PropTypes.func.isRequired,
+  show: PropTypes.bool.isRequired,
+  conType: PropTypes.string.isRequired,
+  device: PropTypes.object,
   detWifi: PropTypes.array.isRequired,
-  wpaTypes: PropTypes.array.isRequired,
-  bandTypes: PropTypes.array.isRequired,
-  validChannels: PropTypes.array.isRequired,
-  onChange: PropTypes.func.isRequired,
-  onTogglePassword: PropTypes.func.isRequired,
-  onSelectScannedWifi: PropTypes.func.isRequired,
-  onSelectCreateHotspot: PropTypes.func.isRequired,
-  onSelectManualWifi: PropTypes.func.isRequired,
-  onRefreshWifi: PropTypes.func.isRequired,
-  onBack: PropTypes.func.isRequired,
-  onSubmit: PropTypes.func.isRequired
+  onClose: PropTypes.func.isRequired,
+  onCreate: PropTypes.func.isRequired,
+  onError: PropTypes.func.isRequired,
+  onRefreshWifi: PropTypes.func.isRequired
 };
 
 export default NewConnectionModal;

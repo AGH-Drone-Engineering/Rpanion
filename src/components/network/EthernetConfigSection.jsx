@@ -6,6 +6,7 @@ import Tooltip from 'react-bootstrap/Tooltip';
 import Button from 'react-bootstrap/Button';
 import Table from 'react-bootstrap/Table';
 import IPAddressInput from '../IPAddressInput.jsx';
+import { FormRow } from './FormFields.jsx';
 
 function EthernetConfigSection({
   currentEthConn,
@@ -55,39 +56,32 @@ function EthernetConfigSection({
         <Accordion.Body>
           {currentEthConn === 'server' && (
             <div>
-              <div className="form-group row" style={{ marginBottom: '5px' }}>
-                <label className="col-sm-4 col-form-label">Gateway IP</label>
-                <div className="col-sm-8">
-                  <IPAddressInput
-                    name="ethServerIp"
-                    value={ethServerSettings.ipaddress}
-                    onChange={(e) => onServerSettingsChange('ipaddress', e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="form-group row" style={{ marginBottom: '5px' }}>
-                <label className="col-sm-4 col-form-label">Subnet Mask</label>
-                <div className="col-sm-8">
-                  <IPAddressInput
-                    name="ethServerSubnet"
-                    value={ethServerSettings.subnet}
-                    onChange={(e) => onServerSettingsChange('subnet', e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="form-group row" style={{ marginBottom: '5px' }}>
-                <label className="col-sm-4 col-form-label"></label>
-                <div className="col-sm-8">
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={onSaveServer}
-                    disabled={ethServerSaving || waiting}
-                  >
-                    {ethServerSaving ? 'Saving...' : 'Save Changes'}
-                  </Button>
-                </div>
-              </div>
+              <FormRow label="Gateway IP" htmlFor="eth-server-ip-0">
+                <IPAddressInput
+                  idPrefix="eth-server-ip"
+                  name="ethServerIp"
+                  value={ethServerSettings.ipaddress}
+                  onChange={(e) => onServerSettingsChange('ipaddress', e.target.value)}
+                />
+              </FormRow>
+              <FormRow label="Subnet Mask" htmlFor="eth-server-subnet-0">
+                <IPAddressInput
+                  idPrefix="eth-server-subnet"
+                  name="ethServerSubnet"
+                  value={ethServerSettings.subnet}
+                  onChange={(e) => onServerSettingsChange('subnet', e.target.value)}
+                />
+              </FormRow>
+              <FormRow label="">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={onSaveServer}
+                  disabled={ethServerSaving || waiting}
+                >
+                  {ethServerSaving ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </FormRow>
             </div>
           )}
 
@@ -140,39 +134,32 @@ function EthernetConfigSection({
               )}
 
               <h4>Add Static IP Alias</h4>
-              <div className="form-group row" style={{ marginBottom: '5px' }}>
-                <label className="col-sm-4 col-form-label">IP Address</label>
-                <div className="col-sm-8">
-                  <IPAddressInput
-                    name="newAliasIp"
-                    value={newAliasIp}
-                    onChange={(e) => onNewAliasIpChange(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="form-group row" style={{ marginBottom: '5px' }}>
-                <label className="col-sm-4 col-form-label">Subnet Mask</label>
-                <div className="col-sm-8">
-                  <IPAddressInput
-                    name="newAliasSubnet"
-                    value={newAliasSubnet}
-                    onChange={(e) => onNewAliasSubnetChange(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="form-group row" style={{ marginBottom: '5px' }}>
-                <label className="col-sm-4 col-form-label"></label>
-                <div className="col-sm-8">
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={onAddAlias}
-                    disabled={ethAliasesSaving || !newAliasIp}
-                  >
-                    {ethAliasesSaving ? 'Adding...' : 'Add Static IP'}
-                  </Button>
-                </div>
-              </div>
+              <FormRow label="IP Address" htmlFor="eth-alias-ip-0">
+                <IPAddressInput
+                  idPrefix="eth-alias-ip"
+                  name="newAliasIp"
+                  value={newAliasIp}
+                  onChange={(e) => onNewAliasIpChange(e.target.value)}
+                />
+              </FormRow>
+              <FormRow label="Subnet Mask" htmlFor="eth-alias-subnet-0">
+                <IPAddressInput
+                  idPrefix="eth-alias-subnet"
+                  name="newAliasSubnet"
+                  value={newAliasSubnet}
+                  onChange={(e) => onNewAliasSubnetChange(e.target.value)}
+                />
+              </FormRow>
+              <FormRow label="">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={onAddAlias}
+                  disabled={ethAliasesSaving || !newAliasIp}
+                >
+                  {ethAliasesSaving ? 'Adding...' : 'Add Static IP'}
+                </Button>
+              </FormRow>
             </div>
           )}
         </Accordion.Body>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Form, InputGroup } from 'react-bootstrap';
 
-const IPAddressInput = ({ value, onChange, disabled, name, isInvalid, feedback }) => {
+// idPrefix: element id prefix; the first octet input is `${idPrefix}-0`
+const IPAddressInput = ({ value, onChange, disabled, name, isInvalid, feedback, idPrefix = `ip-${name}` }) => {
   // Parse initial IP string into array of octets
   const parseIP = (ipString) => {
     const octets = ipString ? ipString.split('.') : ['', '', '', ''];
@@ -36,10 +37,10 @@ const IPAddressInput = ({ value, onChange, disabled, name, isInvalid, feedback }
     if (event.key === '.' || event.key === ' ') {
       event.preventDefault();
       if (index < 3) {
-        document.getElementById(`ip-${name}-${index + 1}`).focus();
+        document.getElementById(`${idPrefix}-${index + 1}`).focus();
       }
     } else if (event.key === 'Backspace' && octets[index] === '' && index > 0) {
-      document.getElementById(`ip-${name}-${index - 1}`).focus();
+      document.getElementById(`${idPrefix}-${index - 1}`).focus();
     }
   };
 
@@ -61,7 +62,7 @@ const IPAddressInput = ({ value, onChange, disabled, name, isInvalid, feedback }
       {octets.map((octet, index) => (
         <React.Fragment key={index}>
           <Form.Control
-            id={`ip-${name}-${index}`}
+            id={`${idPrefix}-${index}`}
             type="text"
             value={octet}
             onChange={(e) => handleOctetChange(index, e.target.value)}
