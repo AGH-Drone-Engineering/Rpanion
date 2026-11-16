@@ -20,13 +20,19 @@ function fakeNmcli (handlers) {
 const UUID = '11111111-2222-3333-4444-555555555555'
 
 describe('networkManager operations', function () {
+  const fs = require('fs')
+  const path = require('path')
+  let stateDir
+
   beforeEach(function () {
-    process.env.RPANION_WIFI_STATE_DIR = require('os').tmpdir()
+    stateDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'rpanion-wifi-'))
+    process.env.RPANION_WIFI_STATE_DIR = stateDir
   })
 
   afterEach(function () {
     sinon.restore()
     delete process.env.RPANION_WIFI_STATE_DIR
+    fs.rmSync(stateDir, { recursive: true, force: true })
   })
 
   describe('activateConnection', function () {
@@ -44,6 +50,19 @@ describe('networkManager operations', function () {
       const calls = fakeNmcli([['-g connection.id,connection.type', () => 'WiFiAP\n802-11-wireless\n']])
       await networkManager.activateConnection(UUID)
       assert.strictEqual(calls[2], `sudo connection mod ${UUID} connection.autoconnect no`)
+    })
+
+    it('holds the access point after the user activates it', async function () {
+      fakeNmcli([['-g connection.id,connection.type', () => 'WiFiAP\n802-11-wireless\n']])
+      await networkManager.activateConnection(UUID)
+      assert.ok(fs.existsSync(path.join(stateDir, 'manual-hold')))
+    })
+
+    it('releases the hold when a client profile is activated', async function () {
+      fs.writeFileSync(path.join(stateDir, 'manual-hold'), '')
+      fakeNmcli([['-g connection.id,connection.type', () => 'bajer\n802-11-wireless\n']])
+      await networkManager.activateConnection(UUID)
+      assert.ok(!fs.existsSync(path.join(stateDir, 'manual-hold')))
     })
 
     it('fails without changes when the profile lookup fails', async function () {

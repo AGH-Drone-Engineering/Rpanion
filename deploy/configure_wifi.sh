@@ -26,15 +26,24 @@ d /run/rpanion-wifi 0770 root rpanion -
 EOF
 sudo systemd-tmpfiles --create
 
-# Install AP fallback watchdog service and timer
+# Install AP fallback watchdog service (replaces the former 10 s timer)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-sudo cp "$SCRIPT_DIR/rpanion-wifi-watchdog.sh" /usr/local/bin/rpanion-wifi-watchdog.sh
-sudo chmod +x /usr/local/bin/rpanion-wifi-watchdog.sh
-sudo cp "$SCRIPT_DIR/rpanion-wifi-watchdog.service" /etc/systemd/system/rpanion-wifi-watchdog.service
-sudo cp "$SCRIPT_DIR/rpanion-wifi-watchdog.timer" /etc/systemd/system/rpanion-wifi-watchdog.timer
+sudo install -o root -g root -m 755 "$SCRIPT_DIR/rpanion-wifi-watchdog.sh" /usr/local/bin/rpanion-wifi-watchdog.sh
+sudo install -o root -g root -m 644 "$SCRIPT_DIR/rpanion-wifi-watchdog.service" /etc/systemd/system/rpanion-wifi-watchdog.service
+if [ -f /etc/systemd/system/rpanion-wifi-watchdog.timer ]; then
+    sudo systemctl disable --now rpanion-wifi-watchdog.timer || true
+    sudo rm -f /etc/systemd/system/rpanion-wifi-watchdog.timer
+fi
+
+# Parsed (not sourced) by the watchdog; written by rpanion-server
+if [ ! -f /etc/default/rpanion-wifi ]; then
+    echo "AP_AUTO_RECONNECT=true" | sudo tee /etc/default/rpanion-wifi > /dev/null
+fi
+sudo chown rpanion:rpanion /etc/default/rpanion-wifi
+sudo chmod 644 /etc/default/rpanion-wifi
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now rpanion-wifi-watchdog.timer
+sudo systemctl enable --now rpanion-wifi-watchdog.service
 
 echo "WiFi configuration completed."
 

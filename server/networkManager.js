@@ -128,9 +128,11 @@ async function activateConnection (conName) {
     }
     throw new Error(describeActivationError(err.message))
   }
-  // The AP is started on demand by the watchdog; it must not autoconnect over client networks
-  const autoconnect = profile.id === PROFILE.WIFI_AP ? 'no' : 'yes'
-  await nmcli.run(['connection', 'mod', conName, 'connection.autoconnect', autoconnect], { sudo: true })
+  // The AP is started on demand by the watchdog; it must not autoconnect over client networks.
+  // A user-started AP is held so the watchdog does not switch back to a client network.
+  const isAp = profile.id === PROFILE.WIFI_AP
+  await nmcli.run(['connection', 'mod', conName, 'connection.autoconnect', isAp ? 'no' : 'yes'], { sudo: true })
+  wifiWatchdogState.setManualHold(isAp)
   console.log('Activated network: ' + conName)
   return 'OK'
 }

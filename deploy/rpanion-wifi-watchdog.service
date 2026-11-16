@@ -1,8 +1,13 @@
 [Unit]
-Description=Rpanion WiFi AP Fallback Watchdog Service
+Description=Rpanion Wi-Fi AP fallback watchdog
 After=NetworkManager.service
+Wants=NetworkManager.service
 
 [Service]
-Type=oneshot
+Type=simple
 ExecStart=/usr/local/bin/rpanion-wifi-watchdog.sh
+Restart=always
+RestartSec=5
 
+[Install]
+WantedBy=multi-user.target
