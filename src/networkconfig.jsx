@@ -158,6 +158,31 @@ class NetworkConfig extends basePage {
     return this.state.netConnection.find(con => con.labelPre === 'Ethernet-Server');
   };
 
+  handleActivateEthernet = (profileName) => {
+    const profile = this.state.netConnection.find(con => con.labelPre === profileName);
+    const conName = profile ? profile.value : profileName;
+
+    this.setState({ waiting: true }, () => {
+      requestApi('/api/networkactivate', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.state.token}`
+        },
+        body: JSON.stringify({ conName })
+      })
+        .then(() => {
+          this.setState({ waiting: false, infoMessage: `${profileName} Activated` });
+          this.handleStart();
+        })
+        .catch(error => {
+          this.setState({ waiting: false, error: `Error activating ${profileName}: ` + error.message });
+          this.handleStart();
+        });
+    });
+  };
+
   fetchEthernetAliases = () => {
     fetch('/api/ethernetaliases', {
       headers: { Authorization: `Bearer ${this.state.token}` }
@@ -1231,6 +1256,10 @@ class NetworkConfig extends basePage {
         {isEthernet ? (
           <EthernetConfigSection
             currentEthConn={currentEthConn}
+            isClientActive={isClientActive}
+            isServerActive={isServerActive}
+            onActivateProfile={this.handleActivateEthernet}
+            waiting={this.state.waiting}
             ethServerSettings={this.state.ethServerSettings}
             ethServerSaving={this.state.ethServerSaving}
             onServerSettingsChange={(field, val) => this.setState(prev => ({

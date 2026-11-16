@@ -9,6 +9,10 @@ import IPAddressInput from '../IPAddressInput.jsx';
 
 function EthernetConfigSection({
   currentEthConn,
+  isClientActive,
+  isServerActive,
+  onActivateProfile,
+  waiting,
   ethServerSettings,
   ethServerSaving,
   onServerSettingsChange,
@@ -76,15 +80,25 @@ function EthernetConfigSection({
               </div>
               <div className="form-group row" style={{ marginBottom: '5px' }}>
                 <label className="col-sm-4 col-form-label"></label>
-                <div className="col-sm-8">
+                <div className="col-sm-8 d-flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     variant="primary"
                     onClick={onSaveServer}
-                    disabled={ethServerSaving}
+                    disabled={ethServerSaving || waiting}
                   >
                     {ethServerSaving ? 'Saving...' : 'Save Changes'}
                   </Button>
+                  {!isServerActive && (
+                    <Button
+                      size="sm"
+                      variant="outline-primary"
+                      onClick={() => onActivateProfile('Ethernet-Server')}
+                      disabled={ethServerSaving || waiting}
+                    >
+                      {waiting ? 'Activating...' : 'Activate DHCP Server'}
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -92,7 +106,28 @@ function EthernetConfigSection({
 
           {currentEthConn === 'client' && (
             <div>
-              <p className="text-muted mb-0">Nothing to configure</p>
+              <p className="text-muted mb-2">
+                Automatically obtains an IP address via DHCP when connected to an external router or network.
+              </p>
+              {!isClientActive ? (
+                <div className="d-flex align-items-center gap-2 mt-3">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() => onActivateProfile('Ethernet-Client')}
+                    disabled={waiting}
+                  >
+                    {waiting ? 'Activating...' : 'Activate DHCP Client'}
+                  </Button>
+                  <span className="text-muted small">
+                    Attempts to request an IP address from an external DHCP server.
+                  </span>
+                </div>
+              ) : (
+                <div className="alert alert-success py-1 px-2 d-inline-block mt-2 mb-0" style={{ fontSize: '0.875rem' }}>
+                  ✓ DHCP Client is currently active on ethernet interface.
+                </div>
+              )}
             </div>
           )}
 
@@ -180,6 +215,10 @@ function EthernetConfigSection({
 
 EthernetConfigSection.propTypes = {
   currentEthConn: PropTypes.string.isRequired,
+  isClientActive: PropTypes.bool.isRequired,
+  isServerActive: PropTypes.bool.isRequired,
+  onActivateProfile: PropTypes.func.isRequired,
+  waiting: PropTypes.bool,
   ethServerSettings: PropTypes.shape({
     ipaddress: PropTypes.string,
     subnet: PropTypes.string

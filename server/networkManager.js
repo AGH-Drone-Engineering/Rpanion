@@ -126,6 +126,11 @@ function activateConnection (conName, callback) {
                 console.log('Rolled back to WiFiAP due to Wi-Fi activation failure of ' + conName)
                 return callback(errMsg)
               })
+            } else if (conId !== 'Ethernet-Server' && (conId === 'Ethernet-Client' || conType === '802-3-ethernet')) {
+              execFile('sudo', ['nmcli', 'connection', 'up', 'Ethernet-Server'], () => {
+                console.log('Rolled back to Ethernet-Server due to Ethernet activation failure of ' + conName)
+                return callback(errMsg)
+              })
             } else {
               return callback(errMsg)
             }
