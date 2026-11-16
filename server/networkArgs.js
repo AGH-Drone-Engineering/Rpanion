@@ -1,4 +1,5 @@
 const { toSubnet } = require('./ipv4Subnet')
+const { parseTerseRow } = require('./nmcli')
 
 /*
  * Pure helpers that translate between NetworkManager/iw output and the
@@ -56,7 +57,9 @@ function buildIpv4Args (conSettings, { isNew = false } = {}) {
 function requireSubnet (ip, mask) {
   const subnet = toSubnet(ip, mask)
   if (!subnet || subnet.prefix === 0) {
-    throw new Error(`Invalid IP address or netmask: ${ip} / ${mask}`)
+    const err = new Error(`Invalid IP address or netmask: ${ip} / ${mask}`)
+    err.status = 422
+    throw err
   }
   return subnet
 }
@@ -97,4 +100,91 @@ function buildWifiArgs (conSettings, { isNew = false } = {}) {
   return args
 }
 
-module.exports = { parseIwChannels, buildIpv4Args, buildWifiArgs }
+// Profiles created by the deploy scripts; the UI and fallback logic depend on these names
+const PROFILE = {
+  ETH_CLIENT: 'Ethernet-Client',
+  ETH_SERVER: 'Ethernet-Server',
+  WIFI_AP: 'WiFiAP'
+}
+
+const ROLES = {
+  [PROFILE.ETH_CLIENT]: 'ethernet-client',
+  [PROFILE.ETH_SERVER]: 'ethernet-server',
+  [PROFILE.WIFI_AP]: 'wifi-ap'
+}
+
+function profileRole (name) {
+  return ROLES[name] || null
+}
+
+// Rough RSSI to quality mapping used by NetworkManager: -100 dBm = 0 %, -50 dBm = 100 %
+function dbmToPercent (dbm) {
+  return Math.max(0, Math.min(100, Math.round(2 * (dbm + 100))))
+}
+
+function isPrintableAscii (text) {
+  return /^[\x20-\x7E]+$/.test(text)
+}
+
+function dedupeStrongest (networks, hiddenSsids) {
+  const bySsid = new Map()
+  for (const net of networks) {
+    if (!net.ssid || !isPrintableAscii(net.ssid) || hiddenSsids.includes(net.ssid)) continue
+    const known = bySsid.get(net.ssid)
+    if (!known || known.signal < net.signal) bySsid.set(net.ssid, net)
+  }
+  return Array.from(bySsid.values()).sort((a, b) => b.signal - a.signal)
+}
+
+// Parses `iw dev <if> scan` output into [{ssid, signal (%), security}]
+function parseIwScan (stdout, hiddenSsids = []) {
+  const networks = []
+  let current = null
+  for (const raw of stdout.split('\n')) {
+    const line = raw.trim()
+    if (line.startsWith('BSS ')) {
+      current = { ssid: null, signal: 0, security: 'Open' }
+      networks.push(current)
+    } else if (!current) {
+      continue
+    } else if (line.startsWith('SSID:')) {
+      current.ssid = line.slice(5).trim()
+    } else if (line.startsWith('signal:')) {
+      current.signal = dbmToPercent(parseFloat(line.split(/\s+/)[1]))
+    } else if (line.startsWith('RSN:')) {
+      current.security = 'WPA2'
+    } else if (line.startsWith('WPA:') && current.security === 'Open') {
+      current.security = 'WPA'
+    } else if (line.includes('Authentication suites:') && /\bSAE\b/.test(line)) {
+      current.security = 'WPA3'
+    }
+  }
+  return dedupeStrongest(networks, hiddenSsids)
+}
+
+// Parses `nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list`
+function parseNmcliWifiList (stdout, hiddenSsids = []) {
+  const networks = []
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue
+    const [ssid, signal, rawSec = ''] = parseTerseRow(line)
+    if (!ssid || ssid === '--') continue
+    let security = 'Open'
+    if (rawSec.includes('WPA3')) security = 'WPA3'
+    else if (rawSec.includes('WPA2') || rawSec.includes('RSN')) security = 'WPA2'
+    else if (rawSec.includes('WPA')) security = 'WPA'
+    else if (rawSec.includes('WEP')) security = 'WEP'
+    networks.push({ ssid, signal: parseInt(signal, 10) || 0, security })
+  }
+  return dedupeStrongest(networks, hiddenSsids)
+}
+
+module.exports = {
+  PROFILE,
+  profileRole,
+  parseIwChannels,
+  parseIwScan,
+  parseNmcliWifiList,
+  buildIpv4Args,
+  buildWifiArgs
+}

@@ -107,3 +107,58 @@ describe('buildWifiArgs', function () {
       ['802-11-wireless.ssid', 'open', '802-11-wireless.mode', 'infrastructure'])
   })
 })
+
+describe('profile roles', function () {
+  const { PROFILE, profileRole } = require('./networkArgs')
+  it('maps system profile names to roles', function () {
+    assert.strictEqual(profileRole(PROFILE.ETH_CLIENT), 'ethernet-client')
+    assert.strictEqual(profileRole('Ethernet-Server'), 'ethernet-server')
+    assert.strictEqual(profileRole('WiFiAP'), 'wifi-ap')
+    assert.strictEqual(profileRole('bajer'), null)
+  })
+})
+
+describe('parseIwScan', function () {
+  const { parseIwScan } = require('./networkArgs')
+  it('returns networks with percent signal, security and dedup by strongest', function () {
+    const out = [
+      'BSS aa:bb:cc:dd:ee:01(on wlan0)',
+      '\tsignal: -50.00 dBm',
+      '\tSSID: home',
+      '\tRSN:\t * Version: 1',
+      '\t\t * Authentication suites: PSK',
+      'BSS aa:bb:cc:dd:ee:02(on wlan0)',
+      '\tsignal: -80.00 dBm',
+      '\tSSID: home',
+      '\tRSN:\t * Version: 1',
+      'BSS aa:bb:cc:dd:ee:03(on wlan0)',
+      '\tsignal: -60.00 dBm',
+      '\tSSID: modern',
+      '\tRSN:\t * Version: 1',
+      '\t\t * Authentication suites: SAE',
+      'BSS aa:bb:cc:dd:ee:04(on wlan0)',
+      '\tsignal: -40.00 dBm',
+      '\tSSID: rpanion',
+      'BSS aa:bb:cc:dd:ee:05(on wlan0)',
+      '\tsignal: -70.00 dBm',
+      '\tSSID: cafe'
+    ].join('\n')
+    assert.deepStrictEqual(parseIwScan(out, ['rpanion']), [
+      { ssid: 'home', signal: 100, security: 'WPA2' },
+      { ssid: 'modern', signal: 80, security: 'WPA3' },
+      { ssid: 'cafe', signal: 60, security: 'Open' }
+    ])
+  })
+})
+
+describe('parseNmcliWifiList', function () {
+  const { parseNmcliWifiList } = require('./networkArgs')
+  it('parses escaped terse rows and skips hidden/own SSIDs', function () {
+    const out = 'My\\:Net:70:WPA2\n--:50:WPA2\nrpanion:90:WPA2\nopen:30:\nMy\\:Net:20:WPA2\nlab:60:WPA3 SAE\n'
+    assert.deepStrictEqual(parseNmcliWifiList(out, ['rpanion']), [
+      { ssid: 'My:Net', signal: 70, security: 'WPA2' },
+      { ssid: 'lab', signal: 60, security: 'WPA3' },
+      { ssid: 'open', signal: 30, security: 'Open' }
+    ])
+  })
+})

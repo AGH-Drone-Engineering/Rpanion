@@ -11,29 +11,20 @@ try {
 const networkManager = require('./networkManager')
 
 describe('Network Functions', function () {
-  it('#networkmanagergetAdapters()', function (done) {
-    // Getting a list of adapters
-    networkManager.getAdapters(function (err) {
-      assert.equal(err, null)
-      done()
-    })
+  it('#networkmanagergetAdapters()', async function () {
+    const adapters = await networkManager.getAdapters()
+    assert.ok(Array.isArray(adapters))
   })
 
-  it('#networkmanagergetConnections()', function (done) {
-    // Getting a list of adapters
-    networkManager.getConnections(function (err) {
-      assert.equal(err, null)
-      done()
-    })
+  it('#networkmanagergetConnections()', async function () {
+    const connections = await networkManager.getConnections()
+    assert.ok(Array.isArray(connections))
   })
 
-  it('#getWifiScan()', function (done) {
+  it('#getWifiScan()', async function () {
     this.timeout(10000)
-    networkManager.getWifiScan(function (err, networks) {
-      assert.equal(err, null)
-      assert.equal(Array.isArray(networks), true)
-      done()
-    })
+    const networks = await networkManager.getWifiScan()
+    assert.equal(Array.isArray(networks), true)
   })
 
   describe('watchdog files', function () {
@@ -60,16 +51,10 @@ describe('Network Functions', function () {
       assert.equal(fs.existsSync(testFile), false)
     })
 
-    it('#getWifiSettings() and #setWifiSettings()', function (done) {
-      networkManager.setWifiSettings({ apAutoReconnect: false }, function (err, result) {
-        assert.equal(err, null)
-        assert.equal(result.apAutoReconnect, false)
-        networkManager.getWifiSettings(function (err2, current) {
-          assert.equal(err2, null)
-          assert.equal(current.apAutoReconnect, false)
-          done()
-        })
-      })
+    it('#getWifiSettings() and #setWifiSettings()', async function () {
+      const result = await networkManager.setWifiSettings({ apAutoReconnect: false })
+      assert.equal(result.apAutoReconnect, false)
+      assert.equal((await networkManager.getWifiSettings()).apAutoReconnect, false)
     })
   })
 })
@@ -123,63 +108,38 @@ describe('validateAliasList', function () {
 })
 
 describe('static address guard', function () {
-  const cp = require('child_process')
-  const util = require('util')
   const sinon = require('sinon')
-  const modulePath = require.resolve('./networkManager')
-  let nm
+  const nmcli = require('./nmcli')
   let calls
 
-  before(function () {
-    calls = []
-    const fake = (cmd, args, opts, cb) => {
-      calls.push([cmd, ...args])
-      const done = typeof opts === 'function' ? opts : cb
-      done(null, '', '')
-    }
-    fake[util.promisify.custom] = async (cmd, args) => {
-      calls.push([cmd, ...args])
-      return { stdout: '', stderr: '' }
-    }
-    sinon.replace(cp, 'execFile', fake)
-    delete require.cache[modulePath]
-    nm = require('./networkManager')
-  })
-
-  after(function () {
-    sinon.restore()
-    nm.setStaticAddressGuard(null)
-    delete require.cache[modulePath]
-  })
-
   beforeEach(function () {
-    calls.length = 0
-    nm.setStaticAddressGuard((subnet) => subnet.ip.startsWith('192.168.144.') ? 'overlaps PPP' : null)
+    calls = []
+    sinon.stub(nmcli, 'run').callsFake(async (args, opts = {}) => {
+      calls.push([opts.sudo ? 'sudo' : 'nmcli', ...args])
+      return ''
+    })
+    networkManager.setStaticAddressGuard((subnet) => subnet.ip.startsWith('192.168.144.') ? 'overlaps PPP' : null)
+  })
+
+  afterEach(function () {
+    sinon.restore()
+    networkManager.setStaticAddressGuard(null)
   })
 
   const sudoCalls = () => calls.filter(c => c[0] === 'sudo')
 
-  it('addConnection rejects a conflicting address before running nmcli', function (done) {
-    nm.addConnection('x', 'ethernet', 'eth0', { ipaddresstype: 'manual', ipaddress: '192.168.144.20', subnet: '255.255.255.0' }, (err) => {
-      assert.ok(String(err && err.message).includes('overlaps PPP'))
-      assert.strictEqual(calls.length, 0)
-      done()
-    })
+  it('addConnection rejects a conflicting address before running nmcli', async function () {
+    await assert.rejects(networkManager.addConnection('x', 'ethernet', 'eth0', { ipaddresstype: 'manual', ipaddress: '192.168.144.20', subnet: '255.255.255.0' }), /overlaps PPP/)
+    assert.strictEqual(calls.length, 0)
   })
 
-  it('editConnection rejects a conflicting address before modifying the profile', function (done) {
-    nm.editConnection('00000000-0000-0000-0000-000000000000', { ipaddresstype: 'manual', ipaddress: '192.168.144.20', subnet: '255.255.255.0' }, (err) => {
-      assert.ok(String(err && (err.message || err)).includes('overlaps PPP'))
-      assert.deepStrictEqual(sudoCalls(), [])
-      done()
-    })
+  it('editConnection rejects a conflicting address before modifying the profile', async function () {
+    await assert.rejects(networkManager.editConnection('00000000-0000-0000-0000-000000000000', { ipaddresstype: 'manual', ipaddress: '192.168.144.20', subnet: '255.255.255.0' }), /overlaps PPP/)
+    assert.deepStrictEqual(sudoCalls(), [])
   })
 
-  it('setEthernetAliases rejects a conflicting alias before writing or applying', function (done) {
-    nm.setEthernetAliases([{ ip: '192.168.144.30', subnet: '255.255.255.0' }], (err) => {
-      assert.ok(String(err && err.message).includes('overlaps PPP'))
-      assert.deepStrictEqual(sudoCalls(), [])
-      done()
-    })
+  it('setEthernetAliases rejects a conflicting alias before writing or applying', async function () {
+    await assert.rejects(networkManager.setEthernetAliases([{ ip: '192.168.144.30', subnet: '255.255.255.0' }]), /overlaps PPP/)
+    assert.deepStrictEqual(sudoCalls(), [])
   })
 })
