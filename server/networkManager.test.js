@@ -96,3 +96,35 @@ describe('requestedStaticAddress', function () {
     assert.strictEqual(networkManager.requestedStaticAddress({ ipaddresstype: 'manual' }), null)
   })
 })
+
+describe('validateAliasList', function () {
+  it('normalises valid aliases to CIDR entries', function () {
+    const { aliases, entries } = networkManager.validateAliasList([{ id: 'a1', ip: ' 10.1.1.2 ', subnet: '255.255.255.0' }, { ip: '172.16.0.9', subnet: '32' }])
+    assert.deepStrictEqual(entries, ['10.1.1.2/24', '172.16.0.9/32'])
+    assert.strictEqual(aliases[0].id, 'a1')
+    assert.strictEqual(aliases[0].ip, '10.1.1.2')
+    assert.strictEqual(aliases[1].subnet, '32')
+  })
+
+  it('defaults the netmask to /24', function () {
+    assert.deepStrictEqual(networkManager.validateAliasList([{ ip: '10.1.1.2' }]).entries, ['10.1.1.2/24'])
+  })
+
+  it('rejects shell metacharacters and malformed addresses', function () {
+    for (const ip of ['$(id)', '1.2.3.4"; touch /tmp/x; "', '999.1.1.1', '10.0.0.1/24', '']) {
+      assert.throws(() => networkManager.validateAliasList([{ ip, subnet: '255.255.255.0' }]), /Invalid alias/, ip)
+    }
+  })
+
+  it('rejects a non-contiguous netmask', function () {
+    assert.throws(() => networkManager.validateAliasList([{ ip: '10.1.1.2', subnet: '255.0.255.0' }]), /Invalid alias/)
+  })
+
+  it('rejects an alias equal to an address of a NetworkManager profile', function () {
+    assert.throws(() => networkManager.validateAliasList([{ ip: '10.0.3.1', subnet: '255.255.255.0' }], ['10.0.3.1']), /already assigned/)
+  })
+
+  it('rejects a non-array input', function () {
+    assert.throws(() => networkManager.validateAliasList('x'), /Invalid aliases list/)
+  })
+})

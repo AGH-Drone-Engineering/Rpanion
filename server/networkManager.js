@@ -682,62 +682,76 @@ async function getEthernetAliases (callback) {
   })
 }
 
-async function setEthernetAliases (aliasesList, callback) {
-  if (!Array.isArray(aliasesList)) {
-    return callback(new Error('Invalid aliases list'))
+const ALIAS_CONFIG_FILE = '/etc/default/rpanion-eth-alias'
+
+/**
+ * Validates alias entries before they reach the dispatcher config file.
+ * @param {Array<{id?: string, ip: string, subnet?: string}>} list
+ * @param {string[]} reservedIps addresses owned by NetworkManager profiles;
+ *   an alias equal to one of them would be removed with `ip addr del` later
+ * @returns {{aliases: Array<{id, ip, subnet}>, entries: string[]}}
+ */
+function validateAliasList (list, reservedIps = []) {
+  if (!Array.isArray(list)) {
+    throw new Error('Invalid aliases list')
   }
-
-  const ethIface = await getPrimaryEthernetDevice()
-  const oldAliases = settings.value('ethernet.aliases', [])
-  const validList = aliasesList.filter(item => item && item.ip).map((item, idx) => ({
-    id: item.id || ('alias-' + idx + '-' + Date.now()),
-    ip: item.ip.trim(),
-    subnet: (item.subnet || '255.255.255.0').trim()
-  }))
-
-  settings.setValue('ethernet.aliases', validList)
-
-  const aliasEntries = []
-  validList.forEach(item => {
-    try {
-      const cidr = netmask2CIDR(item.subnet) || 24
-      aliasEntries.push(`${item.ip}/${cidr}`)
-    } catch (_) {}
-  })
-
-  const configContent = `ETH_ALIASES="${aliasEntries.join(' ')}"\n`
-  try {
-    fs.writeFileSync('/etc/default/rpanion-eth-alias', configContent)
-  } catch (_) {
-    try {
-      fs.writeFileSync('/tmp/rpanion-eth-alias', configContent)
-      await execFileAsync('sudo', ['cp', '/tmp/rpanion-eth-alias', '/etc/default/rpanion-eth-alias'])
-      await execFileAsync('sudo', ['chown', 'rpanion:rpanion', '/etc/default/rpanion-eth-alias'])
-      try { fs.unlinkSync('/tmp/rpanion-eth-alias') } catch (_) {}
-    } catch (err2) {
-      console.error('Error writing /etc/default/rpanion-eth-alias: ' + err2)
+  const aliases = []
+  const entries = []
+  list.forEach((item, idx) => {
+    const ip = typeof (item && item.ip) === 'string' ? item.ip.trim() : ''
+    const mask = typeof (item && item.subnet) === 'string' && item.subnet.trim() ? item.subnet.trim() : '255.255.255.0'
+    const subnet = ip.includes('/') ? null : toSubnet(ip, mask)
+    if (!subnet) {
+      throw new Error(`Invalid alias address: ${ip || '(empty)'} / ${mask}`)
     }
+    if (reservedIps.includes(subnet.ip)) {
+      throw new Error(`Alias ${subnet.ip} is already assigned by a network profile`)
+    }
+    aliases.push({ id: item.id || ('alias-' + idx + '-' + Date.now()), ip: subnet.ip, subnet: mask })
+    entries.push(`${subnet.ip}/${subnet.prefix}`)
+  })
+  return { aliases, entries }
+}
+
+async function setEthernetAliases (aliasesList, callback) {
+  let validated
+  let reservedIps
+  try {
+    reservedIps = (await getProfileStaticSubnets()).map(subnet => subnet.ip)
+    validated = validateAliasList(aliasesList, reservedIps)
+  } catch (err) {
+    return callback(err)
   }
 
-  // Remove old IPs that are no longer in validList
+  try {
+    await fs.promises.writeFile(ALIAS_CONFIG_FILE, `ETH_ALIASES="${validated.entries.join(' ')}"\n`)
+  } catch (err) {
+    return callback(new Error(`Cannot write ${ALIAS_CONFIG_FILE}: ${err.message}`))
+  }
+
+  const oldAliases = settings.value('ethernet.aliases', [])
+  settings.setValue('ethernet.aliases', validated.aliases)
+
+  // Apply to the running interface; the dispatcher re-applies the file on every profile up
+  const ethIface = await getPrimaryEthernetDevice()
+  const failures = []
   if (Array.isArray(oldAliases)) {
     for (const oldItem of oldAliases) {
-      if (!validList.some(newItem => newItem.ip === oldItem.ip)) {
-        try {
-          const cidr = netmask2CIDR(oldItem.subnet) || 24
-          await execFileAsync('sudo', ['ip', 'addr', 'del', `${oldItem.ip}/${cidr}`, 'dev', ethIface]).catch(() => {})
-        } catch (_) {}
+      const oldSubnet = oldItem && toSubnet(oldItem.ip, oldItem.subnet || '255.255.255.0')
+      if (!oldSubnet || reservedIps.includes(oldSubnet.ip) || validated.aliases.some(a => a.ip === oldSubnet.ip)) {
+        continue
       }
+      await execFileAsync('sudo', ['ip', 'addr', 'del', `${oldSubnet.ip}/${oldSubnet.prefix}`, 'dev', ethIface])
+        .catch(err => { if (!/Cannot assign/.test(err.stderr || '')) failures.push(err.stderr || err.message) })
     }
   }
-
-  // Add new IPs on primary ethernet interface
-  for (const entry of aliasEntries) {
-    try {
-      await execFileAsync('sudo', ['ip', 'addr', 'add', entry, 'dev', ethIface]).catch(() => {})
-    } catch (_) {}
+  for (const entry of validated.entries) {
+    await execFileAsync('sudo', ['ip', 'addr', 'add', entry, 'dev', ethIface])
+      .catch(err => { if (!/File exists/.test(err.stderr || '')) failures.push(err.stderr || err.message) })
   }
-
+  if (failures.length > 0) {
+    return callback(new Error(`Aliases saved, but applying them to ${ethIface} failed: ${failures.join('; ').trim()}`))
+  }
   return callback(null, 'OK')
 }
 
@@ -833,15 +847,18 @@ function parseStaticSubnets (nmcliOutput) {
   return subnets
 }
 
-// Static IPv4 subnets from NetworkManager profiles and Ethernet aliases
-async function getStaticIPv4Subnets () {
+// Static IPv4 subnets configured in NetworkManager profiles
+async function getProfileStaticSubnets () {
   const { stdout: uuidOut } = await execFileAsync('nmcli', ['-t', '-f', 'UUID', 'connection', 'show'])
   const uuids = uuidOut.split('\n').map(u => u.trim()).filter(Boolean)
-  let subnets = []
-  if (uuids.length > 0) {
-    const { stdout } = await execFileAsync('nmcli', ['-s', '-t', '-f', 'connection.id,ipv4.method,ipv4.addresses', 'connection', 'show', ...uuids])
-    subnets = parseStaticSubnets(stdout)
-  }
+  if (uuids.length === 0) return []
+  const { stdout } = await execFileAsync('nmcli', ['-s', '-t', '-f', 'connection.id,ipv4.method,ipv4.addresses', 'connection', 'show', ...uuids])
+  return parseStaticSubnets(stdout)
+}
+
+// Static IPv4 subnets from NetworkManager profiles and Ethernet aliases
+async function getStaticIPv4Subnets () {
+  const subnets = await getProfileStaticSubnets()
   const aliases = settings.value('ethernet.aliases', [])
   if (Array.isArray(aliases)) {
     for (const alias of aliases) {
@@ -867,6 +884,7 @@ function requestedStaticAddress (conSettings) {
 }
 
 module.exports = {
+  validateAliasList,
   parseStaticSubnets,
   requestedStaticAddress,
   getStaticIPv4Subnets,

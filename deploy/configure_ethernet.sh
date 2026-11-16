@@ -61,47 +61,11 @@ ETH_ALIASES=""
 EOF
 fi
 sudo chown rpanion:rpanion /etc/default/rpanion-eth-alias
-sudo chmod 664 /etc/default/rpanion-eth-alias
+sudo chmod 644 /etc/default/rpanion-eth-alias
 
-sudo tee /etc/NetworkManager/dispatcher.d/99-eth0-alias.sh > /dev/null << 'EOF'
-#!/bin/sh
-IFACE="$1"
-ACTION="$2"
-
-case "$IFACE" in
-    eth*|end*|en*) ;;
-    *) exit 0 ;;
-esac
-
-if [ "$ACTION" = "up" ]; then
-    CONFIG_FILE="/etc/default/rpanion-eth-alias"
-    if [ -f "$CONFIG_FILE" ]; then
-        . "$CONFIG_FILE"
-        if [ -n "$ETH_ALIASES" ]; then
-            for entry in $ETH_ALIASES; do
-                ip addr add "$entry" dev "$IFACE" 2>/dev/null || true
-            done
-        fi
-        if [ "$ALIAS_ENABLED" = "true" ] && [ -n "$ALIAS_IP" ]; then
-            PREFIX="24"
-            case "$ALIAS_NETMASK" in
-                "255.255.255.0") PREFIX="24" ;;
-                "255.255.0.0") PREFIX="16" ;;
-                "255.0.0.0") PREFIX="8" ;;
-                "255.255.255.128") PREFIX="25" ;;
-                "255.255.255.192") PREFIX="26" ;;
-                "255.255.255.224") PREFIX="27" ;;
-                "255.255.255.240") PREFIX="28" ;;
-                "255.255.255.248") PREFIX="29" ;;
-                "255.255.255.252") PREFIX="30" ;;
-            esac
-            ip addr add "${ALIAS_IP}/${PREFIX}" dev "$IFACE" 2>/dev/null || true
-        fi
-    fi
-fi
-EOF
-sudo chmod 755 /etc/NetworkManager/dispatcher.d/99-eth0-alias.sh
-sudo chown root:root /etc/NetworkManager/dispatcher.d/99-eth0-alias.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+sudo rm -f /etc/NetworkManager/dispatcher.d/99-eth0-alias.sh
+sudo install -o root -g root -m 755 "$SCRIPT_DIR/rpanion-eth-alias-dispatcher.sh" /etc/NetworkManager/dispatcher.d/99-rpanion-eth-alias.sh
 
 echo "Ethernet configuration completed."
 

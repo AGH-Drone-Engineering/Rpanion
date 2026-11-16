@@ -1629,7 +1629,9 @@ app.get('/api/ethernetaliases', authenticateToken, (req, res) => {
 
 // Set all Ethernet static IP aliases
 app.post('/api/ethernetaliases', authenticateToken, [
-  check('aliases').isArray()
+  check('aliases').isArray(),
+  check('aliases.*.ip').isIP(4),
+  check('aliases.*.subnet').optional({ checkFalsy: true }).isString()
 ], (req, res) => {
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
