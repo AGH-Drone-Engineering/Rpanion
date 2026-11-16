@@ -84,6 +84,7 @@ class FCDetails {
 
     // DataFlash logger process
     this.dflogger = null
+    this.startGuard = null
 
     // Is the connection active?
     this.active = false
@@ -365,6 +366,22 @@ class FCDetails {
     console.log('Stopping DataFlash logger')
     this.dflogger.kill('SIGTERM')
     this.dflogger = null
+  }
+
+  // Serial port held by mavlink-router, or null when telemetry is stopped or uses UDP input
+  getSerialPortClaim () {
+    if (!this.active || !this.activeDevice || this.activeDevice.inputType !== 'UART' || !this.activeDevice.serial) {
+      return null
+    }
+    return {
+      device: this.activeDevice.serial,
+      path: getSerialPathFromValue(this.activeDevice.serial, this.serialDevices)
+    }
+  }
+
+  // guard: ({device, path}) => error message or null; checked before telemetry is started from the UI
+  setStartGuard (guard) {
+    this.startGuard = guard
   }
 
   getDFLoggerStatus () {
@@ -674,6 +691,18 @@ class FCDetails {
           this.activeDevice = null
           this.active = false
           return callback(new Error('Bad serial device or baud'), false)
+        }
+
+        if (this.startGuard) {
+          const conflict = this.startGuard({
+            device: this.activeDevice.serial,
+            path: getSerialPathFromValue(this.activeDevice.serial, this.serialDevices)
+          })
+          if (conflict) {
+            this.activeDevice = null
+            this.active = false
+            return callback(new Error(conflict), false)
+          }
         }
       } else if (inputType === 'UDP') {
         // UDP input

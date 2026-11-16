@@ -238,4 +238,38 @@ describe('PPPConnection', function() {
       assert.strictEqual(pppConnection.isQuitting, true);
     });
   });
+
+  describe('start guard', function() {
+    const devices = [{ value: 'usb-FC-if00', path: '/dev/ttyACM0', label: 'FC' }];
+
+    it('refuses to launch pppd when the guard reports a conflict', function(done) {
+      const guard = sinon.stub().resolves('Serial port /dev/ttyACM0 is already used by Flight controller telemetry.');
+      const ppp = new PPPConnection(mockSettings, { startGuard: guard });
+      ppp.serialDevices = devices;
+      const launch = sinon.stub(ppp, 'launchPPP');
+      ppp.startPPP('usb-FC-if00', 921600, '192.168.144.14', '192.168.144.15', (err) => {
+        assert.ok(err.message.includes('Flight controller telemetry'));
+        assert.ok(guard.calledWithMatch({ device: 'usb-FC-if00', path: '/dev/ttyACM0' }));
+        assert.ok(launch.notCalled);
+        assert.strictEqual(ppp.getSerialPortClaim(), null);
+        done();
+      });
+    });
+
+    it('launches pppd when the guard allows it', function(done) {
+      const ppp = new PPPConnection(mockSettings, { startGuard: sinon.stub().resolves(null) });
+      ppp.serialDevices = devices;
+      sinon.stub(ppp, 'launchPPP').callsFake((dev, path, baud, l, r, cb) => cb(null, {}));
+      ppp.startPPP('usb-FC-if00', 921600, '192.168.144.14', '192.168.144.15', (err) => {
+        assert.strictEqual(err, null);
+        done();
+      });
+    });
+
+    it('reports endpoints only while PPP is enabled', function() {
+      assert.strictEqual(pppConnection.getActiveEndpoints(), null);
+      pppConnection.wantEnabled = true;
+      assert.deepStrictEqual(pppConnection.getActiveEndpoints(), { localIP: '192.168.144.14', remoteIP: '192.168.144.15' });
+    });
+  });
 });

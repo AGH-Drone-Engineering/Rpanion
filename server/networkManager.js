@@ -2,6 +2,7 @@ const { exec, execFile } = require('child_process')
 const util = require('util')
 const fs = require('fs')
 const settings = require('settings-store')
+const { toSubnet } = require('./ipv4Subnet')
 
 const execFileAsync = util.promisify(execFile)
 
@@ -802,7 +803,73 @@ async function setWifiSettings (newSettings, callback) {
   callback(null, { apAutoReconnect })
 }
 
+// Parses `nmcli -s -t -f connection.id,ipv4.method,ipv4.addresses connection show ...`
+// output. Only manual and shared profiles have addresses assigned by configuration.
+function parseStaticSubnets (nmcliOutput) {
+  const subnets = []
+  let current = {}
+  const flush = () => {
+    if (current.name && (current.method === 'manual' || current.method === 'shared') && current.addresses) {
+      for (const cidr of current.addresses.split(',')) {
+        const subnet = toSubnet(cidr.trim())
+        if (subnet && subnet.ip !== '127.0.0.1') {
+          subnets.push({ name: current.name, ...subnet })
+        }
+      }
+    }
+    current = {}
+  }
+  for (const line of nmcliOutput.split('\n')) {
+    if (line.startsWith('connection.id:')) {
+      flush()
+      current.name = line.slice('connection.id:'.length)
+    } else if (line.startsWith('ipv4.method:')) {
+      current.method = line.slice('ipv4.method:'.length).trim()
+    } else if (line.startsWith('ipv4.addresses:')) {
+      current.addresses = line.slice('ipv4.addresses:'.length).trim()
+    }
+  }
+  flush()
+  return subnets
+}
+
+// Static IPv4 subnets from NetworkManager profiles and Ethernet aliases
+async function getStaticIPv4Subnets () {
+  const { stdout: uuidOut } = await execFileAsync('nmcli', ['-t', '-f', 'UUID', 'connection', 'show'])
+  const uuids = uuidOut.split('\n').map(u => u.trim()).filter(Boolean)
+  let subnets = []
+  if (uuids.length > 0) {
+    const { stdout } = await execFileAsync('nmcli', ['-s', '-t', '-f', 'connection.id,ipv4.method,ipv4.addresses', 'connection', 'show', ...uuids])
+    subnets = parseStaticSubnets(stdout)
+  }
+  const aliases = settings.value('ethernet.aliases', [])
+  if (Array.isArray(aliases)) {
+    for (const alias of aliases) {
+      const subnet = alias && toSubnet(alias.ip, alias.subnet || '255.255.255.0')
+      if (subnet) subnets.push({ name: 'Ethernet alias ' + alias.ip, ...subnet })
+    }
+  }
+  return subnets
+}
+
+// Static address that addConnection/editConnection would assign for conSettings,
+// as {ip, subnet}, or null when the profile uses DHCP or sets no address.
+// Mirrors the nmcli argument logic: AP profiles always use /24.
+function requestedStaticAddress (conSettings) {
+  if (!conSettings || !conSettings.ipaddress) return null
+  if (conSettings.mode === 'ap') {
+    return { ip: conSettings.ipaddress, subnet: '255.255.255.0' }
+  }
+  if ((conSettings.ipaddresstype === 'manual' || conSettings.ipaddresstype === 'shared') && conSettings.subnet) {
+    return { ip: conSettings.ipaddress, subnet: conSettings.subnet }
+  }
+  return null
+}
+
 module.exports = {
+  parseStaticSubnets,
+  requestedStaticAddress,
+  getStaticIPv4Subnets,
   getAdapters,
   getConnections,
   getConnectionDetails,
