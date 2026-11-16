@@ -162,3 +162,17 @@ describe('parseNmcliWifiList', function () {
     ])
   })
 })
+
+describe('parseIpAddrShow', function () {
+  const { parseIpAddrShow } = require('./networkArgs')
+  it('parses `ip -o -4 addr show` lines', function () {
+    const out = '1: lo    inet 127.0.0.1/8 scope host lo\\       valid_lft forever preferred_lft forever\n' +
+      '2: eth0    inet 10.0.3.1/24 brd 10.0.3.255 scope global noprefixroute eth0\\       valid_lft forever\n' +
+      '3: wlan0    inet 10.28.237.122/24 brd 10.28.237.255 scope global dynamic wlan0\\       valid_lft 3000sec\n'
+    assert.deepStrictEqual(parseIpAddrShow(out), [
+      { iface: 'lo', ip: '127.0.0.1', prefix: 8 },
+      { iface: 'eth0', ip: '10.0.3.1', prefix: 24 },
+      { iface: 'wlan0', ip: '10.28.237.122', prefix: 24 }
+    ])
+  })
+})

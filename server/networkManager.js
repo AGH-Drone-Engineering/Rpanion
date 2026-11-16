@@ -8,7 +8,8 @@ const util = require('util')
 const fs = require('fs')
 const settings = require('settings-store')
 const nmcli = require('./nmcli')
-const { toSubnet, prefixToNetmask } = require('./ipv4Subnet')
+const ipCommand = require('./ipCommand')
+const { toSubnet, prefixToNetmask, subnetsOverlap, formatSubnet } = require('./ipv4Subnet')
 const wifiWatchdogState = require('./wifiWatchdogState')
 const {
   PROFILE,
@@ -16,6 +17,7 @@ const {
   parseIwChannels,
   parseIwScan,
   parseNmcliWifiList,
+  parseIpAddrShow,
   buildIpv4Args,
   buildWifiArgs
 } = require('./networkArgs')
@@ -24,6 +26,8 @@ const execFileAsync = util.promisify(execFile)
 
 const ALIAS_CONFIG_FILE = '/etc/default/rpanion-eth-alias'
 const DEFAULT_NETMASK = '255.255.255.0'
+// Shorter alias prefixes would add routes covering most of the address space
+const MIN_ALIAS_PREFIX = 8
 const IGNORED_DEVICE_TYPES = ['loopback', 'bridge', 'wifi-p2p']
 // SSIDs broadcast by this device's own access point
 const OWN_AP_SSIDS = ['rpanion', PROFILE.WIFI_AP]
@@ -249,6 +253,9 @@ async function editConnection (conName, conSettings) {
   }
   modArgs.push(...ipv4.args)
 
+  const current = await nmcli.run(['-g', 'ipv4.method,ipv4.addresses,connection.interface-name', 'connection', 'show', conName])
+  const needsReactivation = settingsChangeNeedsReactivation(current, conSettings, ipv4.args)
+
   resetWifiWatchdogState()
   if (modArgs.length > 0) {
     await nmcli.run(['connection', 'mod', conName, ...modArgs], { sudo: true })
@@ -259,7 +266,7 @@ async function editConnection (conName, conSettings) {
   }
 
   const state = await nmcli.run(['-t', '-f', 'GENERAL.STATE', 'connection', 'show', conName]).catch(() => '')
-  if (state.includes('activated')) {
+  if (needsReactivation && state.includes('activated')) {
     console.log('Re-applying modified active connection: ' + conName)
     try {
       await nmcli.run(['connection', 'up', conName], { sudo: true })
@@ -268,6 +275,19 @@ async function editConnection (conName, conSettings) {
     }
   }
   return 'EditOK'
+}
+
+// Re-activating an active profile drops its link (possibly the operator's own
+// session), so it is done only when settings that need it changed.
+// Priority changes take effect at the next autoconnect without re-activation.
+function settingsChangeNeedsReactivation (currentGetOutput, conSettings, ipv4Args) {
+  if (conSettings.mode) return true
+  const [method = '', addresses = '', iface = ''] = currentGetOutput.split('\n')
+  const requested = {}
+  for (let i = 0; i < ipv4Args.length; i += 2) requested[ipv4Args[i]] = ipv4Args[i + 1]
+  if ('ipv4.method' in requested && requested['ipv4.method'] !== method) return true
+  if ('ipv4.addresses' in requested && requested['ipv4.addresses'] !== addresses.replace(/\\,\s*/g, ',').trim()) return true
+  return conSettings.attachedIface !== undefined && (conSettings.attachedIface || '') !== iface
 }
 
 async function getConnections () {
@@ -362,7 +382,7 @@ async function getEthernetAliases () {
   const aliases = settings.value('ethernet.aliases', [])
   if (!Array.isArray(aliases) || aliases.length === 0) return []
   const ethIface = await getPrimaryEthernetDevice()
-  const { stdout } = await execFileAsync('ip', ['-o', '-4', 'addr', 'show', 'dev', ethIface]).catch(() => ({ stdout: '' }))
+  const stdout = await ipCommand.run(['-o', '-4', 'addr', 'show', 'dev', ethIface]).catch(() => '')
   return aliases.map(item => ({
     id: item.id || (item.ip + '-' + item.subnet),
     ip: item.ip,
@@ -388,7 +408,7 @@ function validateAliasList (list, reservedIps = []) {
     const ip = typeof (item && item.ip) === 'string' ? item.ip.trim() : ''
     const mask = typeof (item && item.subnet) === 'string' && item.subnet.trim() ? item.subnet.trim() : DEFAULT_NETMASK
     const subnet = ip.includes('/') ? null : toSubnet(ip, mask)
-    if (!subnet) {
+    if (!subnet || subnet.prefix < MIN_ALIAS_PREFIX) {
       throw requestError(`Invalid alias address: ${ip || '(empty)'} / ${mask}`, 422)
     }
     if (reservedIps.includes(subnet.ip)) {
@@ -403,10 +423,20 @@ function validateAliasList (list, reservedIps = []) {
 async function setEthernetAliases (aliasesList) {
   const reservedIps = (await getProfileStaticSubnets()).map(subnet => subnet.ip)
   const validated = validateAliasList(aliasesList, reservedIps)
+  const ethIface = await getPrimaryEthernetDevice()
+  // An alias route overlapping another interface's subnet takes precedence
+  // over it (metric 0) and diverts that interface's traffic, e.g. SSH on wlan0
+  const otherAddrs = parseIpAddrShow(await ipCommand.run(['-o', '-4', 'addr', 'show']))
+    .filter(addr => addr.iface !== ethIface && addr.iface !== 'lo')
   for (const alias of validated.aliases) {
-    const conflict = checkStaticAddress(toSubnet(alias.ip, alias.subnet))
+    const subnet = toSubnet(alias.ip, alias.subnet)
+    const conflict = checkStaticAddress(subnet)
     if (conflict) {
       throw requestError(conflict)
+    }
+    const overlap = otherAddrs.find(addr => subnetsOverlap(subnet, addr))
+    if (overlap) {
+      throw requestError(`Alias ${formatSubnet(subnet)} overlaps ${overlap.ip}/${overlap.prefix} on ${overlap.iface}`)
     }
   }
 
@@ -420,18 +450,17 @@ async function setEthernetAliases (aliasesList) {
   settings.setValue('ethernet.aliases', validated.aliases)
 
   // Apply to the running interface; the dispatcher re-applies the file on every profile up
-  const ethIface = await getPrimaryEthernetDevice()
   const failures = []
   for (const oldItem of Array.isArray(oldAliases) ? oldAliases : []) {
     const oldSubnet = oldItem && toSubnet(oldItem.ip, oldItem.subnet || DEFAULT_NETMASK)
     if (!oldSubnet || reservedIps.includes(oldSubnet.ip) || validated.aliases.some(a => a.ip === oldSubnet.ip)) {
       continue
     }
-    await execFileAsync('sudo', ['ip', 'addr', 'del', `${oldSubnet.ip}/${oldSubnet.prefix}`, 'dev', ethIface])
+    await ipCommand.run(['addr', 'del', `${oldSubnet.ip}/${oldSubnet.prefix}`, 'dev', ethIface], { sudo: true })
       .catch(err => { if (!/Cannot assign/.test(err.stderr || '')) failures.push(err.stderr || err.message) })
   }
   for (const entry of validated.entries) {
-    await execFileAsync('sudo', ['ip', 'addr', 'add', entry, 'dev', ethIface])
+    await ipCommand.run(['addr', 'add', entry, 'dev', ethIface], { sudo: true })
       .catch(err => { if (!/File exists/.test(err.stderr || '')) failures.push(err.stderr || err.message) })
   }
   if (failures.length > 0) {

@@ -18,7 +18,7 @@ esac
 [ -f "$CONFIG_FILE" ] || exit 0
 
 valid_entry() {
-    printf '%s\n' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$' || return 1
+    printf '%s\n' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}/([89]|[12][0-9]|3[0-2])$' || return 1
     ADDR=${1%/*}
     OLD_IFS=$IFS
     IFS=.

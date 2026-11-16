@@ -55,6 +55,11 @@ function subnetContains (subnet, ip) {
   return ((net & mask) >>> 0) === ((addr & mask) >>> 0)
 }
 
+function subnetsOverlap (a, b) {
+  const prefix = Math.min(a.prefix, b.prefix)
+  return subnetContains({ ip: a.ip, prefix }, b.ip)
+}
+
 function prefixToNetmask (prefix) {
   const value = Number(prefix)
   if (!Number.isInteger(value) || value < 0 || value > 32) return null
@@ -66,4 +71,4 @@ function formatSubnet (subnet) {
   return `${subnet.ip}/${subnet.prefix}`
 }
 
-module.exports = { parseIPv4, netmaskToPrefix, prefixToNetmask, toSubnet, subnetContains, formatSubnet }
+module.exports = { parseIPv4, netmaskToPrefix, prefixToNetmask, toSubnet, subnetContains, subnetsOverlap, formatSubnet }

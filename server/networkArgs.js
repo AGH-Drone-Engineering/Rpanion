@@ -179,8 +179,19 @@ function parseNmcliWifiList (stdout, hiddenSsids = []) {
   return dedupeStrongest(networks, hiddenSsids)
 }
 
+// Parses `ip -o -4 addr show` into [{iface, ip, prefix}]
+function parseIpAddrShow (stdout) {
+  const addrs = []
+  for (const line of stdout.split('\n')) {
+    const match = line.match(/^\d+:\s+(\S+)\s+inet\s+([\d.]+)\/(\d+)/)
+    if (match) addrs.push({ iface: match[1], ip: match[2], prefix: parseInt(match[3], 10) })
+  }
+  return addrs
+}
+
 module.exports = {
   PROFILE,
+  parseIpAddrShow,
   profileRole,
   parseIwChannels,
   parseIwScan,

@@ -15,6 +15,7 @@ class PPPConnection {
         this.isStarting = false;
         this.pendingDevice = null;
         this.startCancelled = false;
+        this.retryTimer = null;
         this.wantEnabled = this.settings.value('ppp.enabled', false);
         this.isConnected = false;
         this.pppProcess = null;
@@ -57,6 +58,7 @@ class PPPConnection {
     // Start from saved settings (boot, or after pppd exited unexpectedly).
     // A failed check is retried; a conflict or invalid setting disables PPP.
     attemptAutoStart() {
+        this.retryTimer = null;
         if (this.isQuitting || !this.wantEnabled) {
             return;
         }
@@ -65,10 +67,10 @@ class PPPConnection {
                 console.log('PPP connection started successfully');
             } else if (err.message.includes('already connected')) {
                 console.log('PPP connection is already established. Retrying in 1 second...');
-                setTimeout(() => this.attemptAutoStart(), 1000);
+                this.scheduleAutoStart(1000);
             } else if (err.retryable) {
                 console.error('PPP start check failed, retrying in 5 seconds: ' + err.message);
-                setTimeout(() => this.attemptAutoStart(), 5000);
+                this.scheduleAutoStart(5000);
             } else {
                 console.error('Error starting PPP connection: ' + err.message);
                 this.isConnected = false;
@@ -76,6 +78,11 @@ class PPPConnection {
                 this.setSettings();
             }
         });
+    }
+
+    scheduleAutoStart(delayMs) {
+        clearTimeout(this.retryTimer);
+        this.retryTimer = setTimeout(() => this.attemptAutoStart(), delayMs);
     }
 
     currentState() {
@@ -248,7 +255,7 @@ class PPPConnection {
                 // Unexpected exit - retry without persisting disabled state
                 console.log('PPP process exited unexpectedly. Retrying in 5 seconds...');
                 this.isConnected = false;
-                setTimeout(() => this.attemptAutoStart(), 5000);
+                this.scheduleAutoStart(5000);
             } else {
                 this.isConnected = false;
                 this.setSettings();
@@ -264,6 +271,14 @@ class PPPConnection {
         if (this.isStarting) {
             // Start check still pending: cancel it instead of killing a process
             this.startCancelled = true;
+            this.wantEnabled = false;
+            this.setSettings();
+            return callback(null, this.currentState());
+        }
+        if (!this.isConnected && !this.pppProcess && this.wantEnabled) {
+            // Enabled but waiting for a retry: cancel it so the port is released
+            clearTimeout(this.retryTimer);
+            this.retryTimer = null;
             this.wantEnabled = false;
             this.setSettings();
             return callback(null, this.currentState());

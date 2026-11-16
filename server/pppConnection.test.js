@@ -347,6 +347,26 @@ describe('PPPConnection', function() {
       clock.restore();
     });
 
+    it('stop during the retry backoff disables PPP and cancels the retry', function(done) {
+      const clock = sinon.useFakeTimers();
+      const ppp = makePPP(null);
+      ppp.wantEnabled = true;
+      const err = new Error('Could not verify PPP configuration');
+      err.retryable = true;
+      const start = sinon.stub(ppp, 'startPPP').callsFake((d, b, l, r, cb) => cb(err));
+      ppp.attemptAutoStart();
+      ppp.stopPPP((stopErr) => {
+        assert.strictEqual(stopErr, null);
+        assert.strictEqual(ppp.wantEnabled, false);
+        assert.ok(mockSettings.setValue.calledWith('ppp.enabled', false));
+        assert.strictEqual(ppp.getSerialPortClaim(), null);
+        clock.tick(10000);
+        assert.strictEqual(start.callCount, 1);
+        clock.restore();
+        done();
+      });
+    });
+
     it('autostart disables PPP after a conflict', function() {
       const ppp = makePPP(null);
       ppp.wantEnabled = true;

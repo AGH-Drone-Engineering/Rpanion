@@ -47,3 +47,12 @@ describe('prefixToNetmask', function () {
     assert.strictEqual(prefixToNetmask(33), null)
   })
 })
+
+describe('subnetsOverlap', function () {
+  const { subnetsOverlap } = require('./ipv4Subnet')
+  it('detects containment in either direction', function () {
+    assert.strictEqual(subnetsOverlap({ ip: '10.28.237.50', prefix: 24 }, { ip: '10.28.237.122', prefix: 24 }), true)
+    assert.strictEqual(subnetsOverlap({ ip: '10.28.0.1', prefix: 16 }, { ip: '10.28.237.122', prefix: 24 }), true)
+    assert.strictEqual(subnetsOverlap({ ip: '10.28.238.1', prefix: 24 }, { ip: '10.28.237.122', prefix: 24 }), false)
+  })
+})

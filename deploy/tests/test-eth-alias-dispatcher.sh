@@ -38,6 +38,8 @@ expect "octet out of range ignored" "" \
     "$(run 'ETH_ALIASES="999.1.1.1/24"' Ethernet-Client)"
 expect "prefix out of range ignored" "" \
     "$(run 'ETH_ALIASES="10.0.0.1/33"' Ethernet-Client)"
+expect "prefix shorter than /8 ignored" "" \
+    "$(run 'ETH_ALIASES="10.0.0.1/7"' Ethernet-Client)"
 expect "other connection ignored" "" \
     "$(run 'ETH_ALIASES="192.168.5.2/24"' bajer)"
 expect "down action ignored" "" \

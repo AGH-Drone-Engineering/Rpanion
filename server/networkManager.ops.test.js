@@ -141,6 +141,37 @@ describe('networkManager operations', function () {
       assert.ok(!calls.some(c => c.startsWith('sudo connection up')))
     })
 
+    it('does not bounce an active profile when its IP settings are unchanged', async function () {
+      const calls = fakeNmcli([
+        ['-g connection.id,connection.type', () => 'Ethernet-Server\n802-3-ethernet\n'],
+        ['-g ipv4.method,ipv4.addresses,connection.interface-name', () => 'shared\n10.0.3.1/24\neth0\n'],
+        ['GENERAL.STATE', () => 'GENERAL.STATE:activated\n']
+      ])
+      await networkManager.editConnection(UUID, { ipaddresstype: 'shared', ipaddress: '10.0.3.1', subnet: '255.255.255.0' })
+      assert.ok(!calls.some(c => c.startsWith('sudo connection up')))
+    })
+
+    it('does not bounce an active profile for a priority-only change', async function () {
+      const calls = fakeNmcli([
+        ['-g connection.id,connection.type', () => 'other\n802-3-ethernet\n'],
+        ['-g ipv4.method,ipv4.addresses,connection.interface-name', () => 'auto\n\neth0\n'],
+        ['GENERAL.STATE', () => 'GENERAL.STATE:activated\n']
+      ])
+      await networkManager.editConnection(UUID, { priority: 20 })
+      assert.ok(calls.includes(`sudo connection mod ${UUID} connection.autoconnect-priority 20`))
+      assert.ok(!calls.some(c => c.startsWith('sudo connection up')))
+    })
+
+    it('re-activates an active profile when its address changes', async function () {
+      const calls = fakeNmcli([
+        ['-g connection.id,connection.type', () => 'Ethernet-Server\n802-3-ethernet\n'],
+        ['-g ipv4.method,ipv4.addresses,connection.interface-name', () => 'shared\n10.0.3.1/24\neth0\n'],
+        ['GENERAL.STATE', () => 'GENERAL.STATE:activated\n']
+      ])
+      await networkManager.editConnection(UUID, { ipaddresstype: 'shared', ipaddress: '10.0.4.1', subnet: '255.255.255.0' })
+      assert.ok(calls.includes(`sudo connection up ${UUID}`))
+    })
+
     it('refuses to change the IP mode of Ethernet-Server', async function () {
       const calls = fakeNmcli([['-g connection.id,connection.type', () => 'Ethernet-Server\n802-3-ethernet\n']])
       await assert.rejects(networkManager.editConnection(UUID, { ipaddresstype: 'auto' }), /fallback profile/)
@@ -182,6 +213,35 @@ describe('networkManager operations', function () {
       networkManager.setStaticAddressGuard(null)
       await assert.rejects(networkManager.addConnection('x', 'ethernet', 'eth0', { ipaddresstype: 'manual', ipaddress: '10.1.1.1', subnet: '255.0.255.0' }), (err) => err.status === 422)
       await assert.rejects(networkManager.setEthernetAliases([{ ip: 'x' }]), (err) => err.status === 422)
+    })
+  })
+
+  describe('alias safety', function () {
+    const ipCommand = require('./ipCommand')
+    const IP_ADDRS = '2: eth0    inet 10.0.3.1/24 brd 10.0.3.255 scope global eth0\n' +
+      '3: wlan0    inet 10.28.237.122/24 brd 10.28.237.255 scope global dynamic wlan0\n'
+
+    function stubIp () {
+      const ipCalls = []
+      sinon.stub(ipCommand, 'run').callsFake(async (args, opts = {}) => {
+        ipCalls.push((opts.sudo ? 'sudo ' : '') + args.join(' '))
+        return args[0] === '-o' ? IP_ADDRS : ''
+      })
+      return ipCalls
+    }
+
+    it('rejects an alias overlapping another interface subnet before applying', async function () {
+      fakeNmcli([['interface-name connection show Ethernet-Client', () => 'eth0\n']])
+      const ipCalls = stubIp()
+      await assert.rejects(networkManager.setEthernetAliases([{ ip: '10.28.237.50', subnet: '255.255.255.0' }]),
+        (err) => err.status === 409 && /wlan0/.test(err.message))
+      assert.ok(ipCalls.every(c => !c.startsWith('sudo')))
+    })
+
+    it('rejects prefixes shorter than /8', async function () {
+      fakeNmcli([])
+      stubIp()
+      await assert.rejects(networkManager.setEthernetAliases([{ ip: '20.0.0.1', subnet: '254.0.0.0' }]), (err) => err.status === 422)
     })
   })
 })
