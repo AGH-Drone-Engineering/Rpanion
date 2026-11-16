@@ -119,35 +119,34 @@ class NetworkConfig extends basePage {
   handleStart() {
     this.setState({ loading: true });
     Promise.all([
-      fetch(`/api/networkconnections`, { headers: { Authorization: `Bearer ${this.state.token}` } }).then(response => response.json()).then(state => this.setState(state)),
-      fetch(`/api/wirelessstatus`, { headers: { Authorization: `Bearer ${this.state.token}` } }).then(response => response.json()).then(state => this.setState(state)),
-      fetch(`/api/ethernetaliases`, { headers: { Authorization: `Bearer ${this.state.token}` } }).then(res => res.json()).then(aliases => {
-        if (Array.isArray(aliases)) {
-          this.setState({ ethAliases: aliases });
+      fetch(`/api/networkconnections`, { headers: { Authorization: `Bearer ${this.state.token}` } }).then(res => res.json()),
+      fetch(`/api/wirelessstatus`, { headers: { Authorization: `Bearer ${this.state.token}` } }).then(res => res.json()),
+      fetch(`/api/ethernetaliases`, { headers: { Authorization: `Bearer ${this.state.token}` } }).then(res => res.json()).catch(() => []),
+      fetch(`/api/networkadapters`, { headers: { Authorization: `Bearer ${this.state.token}` } }).then(res => res.json())
+    ]).then(([connData, wifiData, aliasData, adapterData]) => {
+      const netConnection = (connData && connData.netConnection) || [];
+      const netDevice = (adapterData && adapterData.netDevice) || [];
+      const ethAliases = Array.isArray(aliasData) ? aliasData : [];
+      const wirelessEnabled = wifiData ? Boolean(wifiData.wirelessEnabled) : true;
+
+      const defaultWifi = netDevice.find(dev => dev.type === 'wifi');
+      const adapterToUse = this.state.netDeviceSelected || (defaultWifi ? defaultWifi.value : (netDevice[0] ? netDevice[0].value : null));
+
+      this.setState({
+        netConnection,
+        netDevice,
+        ethAliases,
+        wirelessEnabled,
+        netDeviceSelected: adapterToUse
+      }, () => {
+        if (adapterToUse) {
+          this.handleAdapterChange({ target: { value: adapterToUse } }, netConnection, netDevice);
         }
-      }).catch(() => {}),
-      fetch(`/api/networkadapters`, { headers: { Authorization: `Bearer ${this.state.token}` } }).then(response => response.json()).then(state => {
-        return new Promise(resolve => {
-          this.setState(state, () => {
-            if (state.netDevice && state.netDevice.length > 0 && !this.state.netDeviceSelected) {
-              const defaultWifi = state.netDevice.find(dev => dev.type === 'wifi');
-              this.setState({ netDeviceSelected: defaultWifi ? defaultWifi.value : state.netDevice[0].value });
-            }
-            resolve(state);
-          });
-        });
-      })
-    ]).then(retState => {
-      const adapters = retState[3] && retState[3].netDevice;
-      if (adapters && adapters.length > 0) {
-        const defaultWifi = adapters.find(dev => dev.type === 'wifi');
-        const adapterToUse = this.state.netDeviceSelected || (defaultWifi ? defaultWifi.value : adapters[0].value);
-        this.handleAdapterChange({ target: { value: adapterToUse } });
-      }
-      this.fetchEthernetServerSettings();
-      this.fetchWifiSettings();
-      this.setState({ waiting: false });
-      this.loadDone();
+        this.fetchEthernetServerSettings();
+        this.fetchWifiSettings();
+        this.setState({ waiting: false });
+        this.loadDone();
+      });
     }).catch(error => {
       this.setState({ waiting: false, error: 'Error loading network information: ' + error });
       this.loadDone();
@@ -411,12 +410,14 @@ class NetworkConfig extends basePage {
       });
   };
 
-  handleAdapterChange = (event) => {
-    const selectedValue = event.target.value;
-    const selectedDevice = this.state.netDevice.find(dev => dev.value === selectedValue);
+  handleAdapterChange = (event, customConnections, customDevices) => {
+    const selectedValue = (event && event.target) ? event.target.value : event;
+    const devices = customDevices || this.state.netDevice || [];
+    const selectedDevice = devices.find(dev => dev.value === selectedValue);
 
     if (!selectedDevice) return;
 
+    const allConnections = customConnections || this.state.netConnection || [];
     const netConnection = [];
     let activeCon = null;
 
@@ -424,8 +425,8 @@ class NetworkConfig extends basePage {
       this.fetchEthernetAliases();
       this.fetchEthernetServerSettings();
       this.setState({ showIP: true });
-      this.state.netConnection.forEach(item => {
-        if (item.type === '802-3-ethernet' && (item.attachedIface === '' || item.attachedIface === selectedDevice.value)) {
+      allConnections.forEach(item => {
+        if (item.type === '802-3-ethernet' && (!item.attachedIface || item.attachedIface === '' || item.attachedIface === selectedDevice.value)) {
           let base = item.labelPre;
           if (item.state === selectedDevice.value) {
             item.label = base + ' (Active)';
@@ -439,8 +440,8 @@ class NetworkConfig extends basePage {
     } else if (selectedDevice.type === 'wifi') {
       this.fetchWifiSettings();
       this.setState({ showIP: true });
-      this.state.netConnection.forEach(item => {
-        if (item.type === '802-11-wireless' && (item.attachedIface === '""' || item.attachedIface === '' ||
+      allConnections.forEach(item => {
+        if (item.type === '802-11-wireless' && (!item.attachedIface || item.attachedIface === '""' || item.attachedIface === '' ||
           item.attachedIface === 'undefined' || item.attachedIface === selectedDevice.value)) {
           let base = item.labelPre;
           if (item.state === selectedDevice.value) {
@@ -454,8 +455,8 @@ class NetworkConfig extends basePage {
       });
     } else {
       this.setState({ showIP: true });
-      this.state.netConnection.forEach(item => {
-        if (item.type === 'tun' && (item.attachedIface === '' || item.attachedIface === selectedDevice.value)) {
+      allConnections.forEach(item => {
+        if (item.type === 'tun' && (!item.attachedIface || item.attachedIface === '' || item.attachedIface === selectedDevice.value)) {
           if (item.state === selectedDevice.value) {
             item.label = item.labelPre + ' (Active)';
             activeCon = item;
