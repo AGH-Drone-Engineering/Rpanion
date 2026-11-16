@@ -67,20 +67,42 @@ if [ "$DEV_STATE" = "connected" ] && [ "$ACTIVE_CON" = "$AP_CON" ]; then
     fi
 
     if [ -n "$VISIBLE_SSIDS" ]; then
-        SAVED_WIFI=$(nmcli -t -f AUTOCONNECT-PRIORITY,NAME,TYPE,AUTOCONNECT connection show 2>/dev/null \
-            | grep ':802-11-wireless:yes$' \
-            | grep -v ":${AP_CON}:" \
+        SAVED_UUIDS=$(nmcli -t -f AUTOCONNECT-PRIORITY,UUID,TYPE,AUTOCONNECT,NAME connection show 2>/dev/null \
+            | grep ':802-11-wireless:yes:' \
+            | grep -v ":${AP_CON}$" \
             | sort -t: -k1,1nr \
             | cut -d: -f2)
 
-        for CON in $SAVED_WIFI; do
-            SSID=$(nmcli -t -g 802-11-wireless.ssid connection show "$CON" 2>/dev/null)
-            if [ -n "$SSID" ] && echo "$VISIBLE_SSIDS" | grep -qx "$SSID"; then
-                echo "[watchdog] In-range saved Wi-Fi network detected: '$CON' (SSID: '$SSID'). Reconnecting..."
-                nmcli connection up "$CON" || true
-                exit 0
-            fi
-        done
+        if [ -n "$SAVED_UUIDS" ]; then
+            BATCH_INFO=$(nmcli -s -t -f 802-11-wireless.ssid,connection.id,connection.uuid connection show $SAVED_UUIDS 2>/dev/null)
+            CURR_SSID=""
+            CURR_ID=""
+            while IFS= read -r line; do
+                case "$line" in
+                    802-11-wireless.ssid:*)
+                        CURR_SSID="${line#802-11-wireless.ssid:}"
+                        ;;
+                    connection.id:*)
+                        CURR_ID="${line#connection.id:}"
+                        ;;
+                    connection.uuid:*)
+                        CURR_UUID="${line#connection.uuid:}"
+                        if [ -n "$CURR_SSID" ] && [ -n "$CURR_UUID" ]; then
+                            if echo "$VISIBLE_SSIDS" | grep -qx "$CURR_SSID"; then
+                                echo "[watchdog] In-range saved Wi-Fi network detected: '$CURR_ID' (SSID: '$CURR_SSID'). Reconnecting..."
+                                nmcli connection up "$CURR_UUID" || true
+                                rm -f "$DISCONNECT_FILE" "$CLIENT_FILE"
+                                exit 0
+                            fi
+                        fi
+                        CURR_SSID=""
+                        CURR_ID=""
+                        ;;
+                esac
+            done <<EOF
+$BATCH_INFO
+EOF
+        fi
     fi
 
     exit 0
