@@ -90,17 +90,6 @@ describe('parseStaticSubnets', function () {
   })
 })
 
-describe('requestedStaticAddress', function () {
-  it('maps connection settings to the address nmcli would assign', function () {
-    assert.deepStrictEqual(networkManager.requestedStaticAddress({ ipaddresstype: 'manual', ipaddress: '192.168.144.20', subnet: '255.255.255.0' }),
-      { ip: '192.168.144.20', subnet: '255.255.255.0' })
-    assert.deepStrictEqual(networkManager.requestedStaticAddress({ mode: 'ap', ipaddresstype: 'shared', ipaddress: '10.0.2.100' }),
-      { ip: '10.0.2.100', subnet: '255.255.255.0' })
-    assert.strictEqual(networkManager.requestedStaticAddress({ ipaddresstype: 'auto', ipaddress: '192.168.144.20', subnet: '255.255.255.0' }), null)
-    assert.strictEqual(networkManager.requestedStaticAddress({ ipaddresstype: 'manual' }), null)
-  })
-})
-
 describe('validateAliasList', function () {
   it('normalises valid aliases to CIDR entries', function () {
     const { aliases, entries } = networkManager.validateAliasList([{ id: 'a1', ip: ' 10.1.1.2 ', subnet: '255.255.255.0' }, { ip: '172.16.0.9', subnet: '32' }])
@@ -130,5 +119,67 @@ describe('validateAliasList', function () {
 
   it('rejects a non-array input', function () {
     assert.throws(() => networkManager.validateAliasList('x'), /Invalid aliases list/)
+  })
+})
+
+describe('static address guard', function () {
+  const cp = require('child_process')
+  const util = require('util')
+  const sinon = require('sinon')
+  const modulePath = require.resolve('./networkManager')
+  let nm
+  let calls
+
+  before(function () {
+    calls = []
+    const fake = (cmd, args, opts, cb) => {
+      calls.push([cmd, ...args])
+      const done = typeof opts === 'function' ? opts : cb
+      done(null, '', '')
+    }
+    fake[util.promisify.custom] = async (cmd, args) => {
+      calls.push([cmd, ...args])
+      return { stdout: '', stderr: '' }
+    }
+    sinon.replace(cp, 'execFile', fake)
+    delete require.cache[modulePath]
+    nm = require('./networkManager')
+  })
+
+  after(function () {
+    sinon.restore()
+    nm.setStaticAddressGuard(null)
+    delete require.cache[modulePath]
+  })
+
+  beforeEach(function () {
+    calls.length = 0
+    nm.setStaticAddressGuard((subnet) => subnet.ip.startsWith('192.168.144.') ? 'overlaps PPP' : null)
+  })
+
+  const sudoCalls = () => calls.filter(c => c[0] === 'sudo')
+
+  it('addConnection rejects a conflicting address before running nmcli', function (done) {
+    nm.addConnection('x', 'ethernet', 'eth0', { ipaddresstype: 'manual', ipaddress: '192.168.144.20', subnet: '255.255.255.0' }, (err) => {
+      assert.ok(String(err && err.message).includes('overlaps PPP'))
+      assert.strictEqual(calls.length, 0)
+      done()
+    })
+  })
+
+  it('editConnection rejects a conflicting address before modifying the profile', function (done) {
+    nm.editConnection('00000000-0000-0000-0000-000000000000', { ipaddresstype: 'manual', ipaddress: '192.168.144.20', subnet: '255.255.255.0' }, (err) => {
+      assert.ok(String(err && (err.message || err)).includes('overlaps PPP'))
+      assert.deepStrictEqual(sudoCalls(), [])
+      done()
+    })
+  })
+
+  it('setEthernetAliases rejects a conflicting alias before writing or applying', function (done) {
+    nm.setEthernetAliases([{ ip: '192.168.144.30', subnet: '255.255.255.0' }], (err) => {
+      assert.ok(String(err && err.message).includes('overlaps PPP'))
+      assert.deepStrictEqual(sudoCalls(), [])
+      done()
+    })
   })
 })

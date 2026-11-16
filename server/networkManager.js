@@ -72,6 +72,16 @@ function setWirelessStatus (status, callback) {
   })
 }
 
+// Checks a static address before it is applied: ({ip, prefix}) => error message or null
+let staticAddressGuard = null
+function setStaticAddressGuard (guard) {
+  staticAddressGuard = guard
+}
+
+function checkStaticAddress (subnet) {
+  return subnet && staticAddressGuard ? staticAddressGuard(subnet) : null
+}
+
 function resetWifiWatchdogState () {
   wifiWatchdogState.reset()
 }
@@ -274,15 +284,20 @@ function getWifiScan (callback) {
 }
 
 function addConnection (conNameStr, conType, conAdapter, conSettings, callback) {
-  resetWifiWatchdogState()
-  let ipv4Args
+  let ipv4
   let typeArgs
   try {
-    ipv4Args = buildIpv4Args(conSettings, { isNew: true }).args
+    ipv4 = buildIpv4Args(conSettings, { isNew: true })
     typeArgs = conType === 'wifi' ? buildWifiArgs(conSettings, { isNew: true }) : []
   } catch (err) {
     return callback(err)
   }
+  const conflict = checkStaticAddress(ipv4.address)
+  if (conflict) {
+    return callback(new Error(conflict))
+  }
+  resetWifiWatchdogState()
+  const ipv4Args = ipv4.args
   const hasPriority = conSettings.priority !== undefined && conSettings.priority !== null && conSettings.priority !== ''
   const priority = hasPriority ? conSettings.priority : (conType === 'wifi' && conSettings.mode === 'ap' ? 0 : 100)
   const nmcliArgs = ['connection', 'add', 'type', conType, 'ifname', conAdapter, 'con-name', conNameStr,
@@ -308,8 +323,13 @@ function addConnection (conNameStr, conType, conAdapter, conSettings, callback) 
 }
 
 async function editConnection (conName, conSettings, callback) {
-  resetWifiWatchdogState()
   try {
+    const ipv4 = buildIpv4Args(conSettings)
+    const conflict = checkStaticAddress(ipv4.address)
+    if (conflict) {
+      return callback(conflict)
+    }
+    resetWifiWatchdogState()
     const { stdout: stdoutShow } = await execFileAsync('nmcli', ['-g', 'connection.id', 'connection', 'show', conName])
     const conId = (stdoutShow || '').trim()
 
@@ -356,7 +376,7 @@ async function editConnection (conName, conSettings, callback) {
     if (conSettings.mode) {
       modArgs.push(...buildWifiArgs(conSettings))
     }
-    modArgs.push(...buildIpv4Args(conSettings).args)
+    modArgs.push(...ipv4.args)
 
     if (modArgs.length > 3) {
       await execFileAsync('sudo', ['nmcli', ...modArgs])
@@ -617,6 +637,12 @@ async function setEthernetAliases (aliasesList, callback) {
   } catch (err) {
     return callback(err)
   }
+  for (const alias of validated.aliases) {
+    const conflict = checkStaticAddress(toSubnet(alias.ip, alias.subnet))
+    if (conflict) {
+      return callback(new Error(conflict))
+    }
+  }
 
   try {
     await fs.promises.writeFile(ALIAS_CONFIG_FILE, `ETH_ALIASES="${validated.entries.join(' ')}"\n`)
@@ -738,22 +764,10 @@ async function getStaticIPv4Subnets () {
   return subnets
 }
 
-// Static address that addConnection/editConnection would assign for conSettings,
-// as {ip, subnet}, or null when the profile uses DHCP or sets no address.
-// Mirrors the nmcli argument logic: AP profiles always use /24.
-function requestedStaticAddress (conSettings) {
-  try {
-    const { address } = buildIpv4Args(conSettings || {})
-    return address ? { ip: address.ip, subnet: prefixToNetmask(address.prefix) } : null
-  } catch (_) {
-    return null
-  }
-}
-
 module.exports = {
   validateAliasList,
   parseStaticSubnets,
-  requestedStaticAddress,
+  setStaticAddressGuard,
   getStaticIPv4Subnets,
   getAdapters,
   getConnections,

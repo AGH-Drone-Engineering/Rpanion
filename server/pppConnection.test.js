@@ -242,10 +242,16 @@ describe('PPPConnection', function() {
   describe('start guard', function() {
     const devices = [{ value: 'usb-FC-if00', path: '/dev/ttyACM0', label: 'FC' }];
 
+    function makePPP(guard) {
+      const ppp = new PPPConnection(mockSettings);
+      ppp.serialDevices = devices;
+      ppp.setStartGuard(guard);
+      return ppp;
+    }
+
     it('refuses to launch pppd when the guard reports a conflict', function(done) {
       const guard = sinon.stub().resolves('Serial port /dev/ttyACM0 is already used by Flight controller telemetry.');
-      const ppp = new PPPConnection(mockSettings, { startGuard: guard });
-      ppp.serialDevices = devices;
+      const ppp = makePPP(guard);
       const launch = sinon.stub(ppp, 'launchPPP');
       ppp.startPPP('usb-FC-if00', 921600, '192.168.144.14', '192.168.144.15', (err) => {
         assert.ok(err.message.includes('Flight controller telemetry'));
@@ -257,13 +263,97 @@ describe('PPPConnection', function() {
     });
 
     it('launches pppd when the guard allows it', function(done) {
-      const ppp = new PPPConnection(mockSettings, { startGuard: sinon.stub().resolves(null) });
-      ppp.serialDevices = devices;
+      const ppp = makePPP(sinon.stub().resolves(null));
       sinon.stub(ppp, 'launchPPP').callsFake((dev, path, baud, l, r, cb) => cb(null, {}));
       ppp.startPPP('usb-FC-if00', 921600, '192.168.144.14', '192.168.144.15', (err) => {
         assert.strictEqual(err, null);
         done();
       });
+    });
+
+    it('claims the port while PPP is enabled, even without a running pppd', function() {
+      const ppp = makePPP(null);
+      ppp.device = 'usb-FC-if00';
+      assert.strictEqual(ppp.getSerialPortClaim(), null);
+      ppp.wantEnabled = true;
+      assert.deepStrictEqual(ppp.getSerialPortClaim(), { device: 'usb-FC-if00', path: '/dev/ttyACM0' });
+    });
+
+    it('claims the requested port while the start check is pending', function() {
+      let release;
+      const ppp = makePPP(() => new Promise((resolve) => { release = resolve; }));
+      ppp.device = '/dev/ttyUSB0';
+      sinon.stub(ppp, 'launchPPP');
+      ppp.startPPP('usb-FC-if00', 921600, '192.168.144.14', '192.168.144.15', () => {});
+      assert.deepStrictEqual(ppp.getSerialPortClaim(), { device: 'usb-FC-if00', path: '/dev/ttyACM0' });
+      release(null);
+    });
+
+    it('does not launch pppd when stopped while the start check is pending', function(done) {
+      let release;
+      const ppp = makePPP(() => new Promise((resolve) => { release = resolve; }));
+      const launch = sinon.stub(ppp, 'launchPPP');
+      ppp.startPPP('usb-FC-if00', 921600, '192.168.144.14', '192.168.144.15', (err) => {
+        assert.ok(/cancelled/.test(err.message));
+        assert.ok(launch.notCalled);
+        assert.strictEqual(ppp.wantEnabled, false);
+        done();
+      });
+      ppp.stopPPP((err) => {
+        assert.strictEqual(err, null);
+        release(null);
+      });
+    });
+
+    it('does not launch pppd when quitting while the start check is pending', function(done) {
+      let release;
+      const ppp = makePPP(() => new Promise((resolve) => { release = resolve; }));
+      const launch = sinon.stub(ppp, 'launchPPP');
+      ppp.startPPP('usb-FC-if00', 921600, '192.168.144.14', '192.168.144.15', (err) => {
+        assert.ok(err);
+        assert.ok(launch.notCalled);
+        done();
+      });
+      ppp.quitting();
+      release(null);
+    });
+
+    it('marks a failed check as retryable and a conflict as final', function(done) {
+      const ppp = makePPP(sinon.stub().rejects(new Error('nmcli not running')));
+      sinon.stub(ppp, 'launchPPP');
+      ppp.startPPP('usb-FC-if00', 921600, '192.168.144.14', '192.168.144.15', (err) => {
+        assert.strictEqual(err.retryable, true);
+        const ppp2 = makePPP(sinon.stub().resolves('conflict'));
+        ppp2.startPPP('usb-FC-if00', 921600, '192.168.144.14', '192.168.144.15', (err2) => {
+          assert.ok(!err2.retryable);
+          done();
+        });
+      });
+    });
+
+    it('autostart keeps PPP enabled and retries after a failed check', function() {
+      const clock = sinon.useFakeTimers();
+      const ppp = makePPP(null);
+      ppp.wantEnabled = true;
+      const start = sinon.stub(ppp, 'startPPP');
+      const err = new Error('Could not verify PPP configuration');
+      err.retryable = true;
+      start.onFirstCall().callsFake((d, b, l, r, cb) => cb(err));
+      ppp.attemptAutoStart();
+      assert.strictEqual(ppp.wantEnabled, true);
+      assert.ok(!mockSettings.setValue.calledWith('ppp.enabled', false));
+      clock.tick(5000);
+      assert.strictEqual(start.callCount, 2);
+      clock.restore();
+    });
+
+    it('autostart disables PPP after a conflict', function() {
+      const ppp = makePPP(null);
+      ppp.wantEnabled = true;
+      sinon.stub(ppp, 'startPPP').callsFake((d, b, l, r, cb) => cb(new Error('Serial port in use')));
+      ppp.attemptAutoStart();
+      assert.strictEqual(ppp.wantEnabled, false);
+      assert.ok(mockSettings.setValue.calledWith('ppp.enabled', false));
     });
 
     it('reports endpoints only while PPP is enabled', function() {

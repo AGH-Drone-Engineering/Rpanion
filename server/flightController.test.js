@@ -169,3 +169,47 @@ describe('DataFlash logger process tracking', function () {
     })
   })
 })
+
+describe('DataFlash logger lifecycle', function () {
+  before(function () {
+    try {
+      settings.init({ appName: 'rpanion-server', publisherName: 'Rpanion', reverseDNS: 'com.rpanion.rpanion-server' })
+    } catch (_) {}
+  })
+
+  afterEach(function () {
+    sinon.restore()
+  })
+
+  function fakeLogger () {
+    return { kill: sinon.spy() }
+  }
+
+  it('keeps the logger running when the link is closed for a reconnect', function (done) {
+    settings.clear()
+    const FC = new FCManagerClass(settings)
+    const logger = fakeLogger()
+    FC.dflogger = logger
+    FC.closeLink(() => {
+      assert.strictEqual(FC.dflogger, logger)
+      assert.ok(logger.kill.notCalled)
+      done()
+    })
+  })
+
+  it('stops the logger when telemetry is stopped', function (done) {
+    settings.clear()
+    const FC = new FCManagerClass(settings)
+    const logger = fakeLogger()
+    FC.dflogger = logger
+    FC.active = true
+    FC.m = { close: () => {} }
+    sinon.stub(FC, 'saveSerialSettings')
+    FC.startStopTelemetry(null, 57600, 2, false, false, true, 14550, false, false, false, true, 'UART', 9000, (err) => {
+      assert.strictEqual(err, null)
+      assert.ok(logger.kill.calledOnce)
+      assert.strictEqual(FC.dflogger, null)
+      done()
+    })
+  })
+})

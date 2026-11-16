@@ -9,15 +9,12 @@ const { spawn, execSync } = require('child_process');
 const { detectSerialDevices, getSerialPathFromValue } = require('./serialDetection.js')
 
 class PPPConnection {
-    /**
-     * @param {object} settings
-     * @param {object} [options]
-     * @param {function} [options.startGuard] async ({device, path, localIP, remoteIP}) => error message or null
-     */
-    constructor(settings, { startGuard = null } = {}) {
+    constructor(settings) {
         this.settings = settings
-        this.startGuard = startGuard;
+        this.startGuard = null;
         this.isStarting = false;
+        this.pendingDevice = null;
+        this.startCancelled = false;
         this.wantEnabled = this.settings.value('ppp.enabled', false);
         this.isConnected = false;
         this.pppProcess = null;
@@ -40,30 +37,45 @@ class PPPConnection {
         this.isManualStop = false; // flag to distinguish manual stop from process crash
 
         if (this.wantEnabled) {
-            // populate serial devices list and start PPP connection
+            // Device detection is async, so the start guard (set right after
+            // construction) is in place before the first start attempt.
             this.getDevices((err, devices) => {
                 this.devices = devices;
-                const attemptPPPStart = () => {
-                    this.startPPP(this.device, this.baudRate, this.localIP, this.remoteIP, (err, result) => {
-                        if (err) {
-                            if (err.message.includes('already connected')) {
-                                console.log('PPP connection is already established. Retrying in 1 second...');
-                                setTimeout(attemptPPPStart, 1000); // Retry after 1 second
-                            } else {
-                                console.error('Error starting PPP connection:', err);
-                                this.isConnected = false;
-                                this.wantEnabled = false;
-                                this.setSettings();
-                            }
-                        } else {
-                            console.log('PPP connection started successfully');
-                        }
-                    });
-                };
-
-                attemptPPPStart();
+                this.attemptAutoStart();
             });
         }
+    }
+
+    /**
+     * @param {function} guard async ({device, path, localIP, remoteIP}) => error message or null;
+     *   a rejected promise means the check itself failed and the start is retried
+     */
+    setStartGuard(guard) {
+        this.startGuard = guard;
+    }
+
+    // Start from saved settings (boot, or after pppd exited unexpectedly).
+    // A failed check is retried; a conflict or invalid setting disables PPP.
+    attemptAutoStart() {
+        if (this.isQuitting || !this.wantEnabled) {
+            return;
+        }
+        this.startPPP(this.device, this.baudRate, this.localIP, this.remoteIP, (err) => {
+            if (!err) {
+                console.log('PPP connection started successfully');
+            } else if (err.message.includes('already connected')) {
+                console.log('PPP connection is already established. Retrying in 1 second...');
+                setTimeout(() => this.attemptAutoStart(), 1000);
+            } else if (err.retryable) {
+                console.error('PPP start check failed, retrying in 5 seconds: ' + err.message);
+                setTimeout(() => this.attemptAutoStart(), 5000);
+            } else {
+                console.error('Error starting PPP connection: ' + err.message);
+                this.isConnected = false;
+                this.wantEnabled = false;
+                this.setSettings();
+            }
+        });
     }
 
     currentState() {
@@ -78,9 +90,13 @@ class PPPConnection {
         };
     }
 
-    // Serial port held by pppd, or null when PPP is not running
+    // Serial port reserved by PPP: the pending device during a start check,
+    // otherwise the configured device while PPP is enabled or running
     getSerialPortClaim() {
-        if (!this.pppProcess && !this.isConnected && !this.isStarting) {
+        if (this.isStarting && this.pendingDevice) {
+            return { ...this.pendingDevice };
+        }
+        if (!this.wantEnabled && !this.pppProcess && !this.isConnected) {
             return null;
         }
         return { device: this.device, path: getSerialPathFromValue(this.device, this.serialDevices) };
@@ -155,18 +171,27 @@ class PPPConnection {
             return this.launchPPP(device, devicePath, baudRate, localIP, remoteIP, callback);
         }
         this.isStarting = true;
-        this.startGuard({ device, path: devicePath, localIP, remoteIP })
-            .then((conflict) => {
-                this.isStarting = false;
-                if (conflict) {
-                    return callback(new Error(conflict), this.currentState());
-                }
-                return this.launchPPP(device, devicePath, baudRate, localIP, remoteIP, callback);
-            })
-            .catch((err) => {
-                this.isStarting = false;
-                return callback(new Error('Could not verify PPP configuration: ' + (err.message || err)), this.currentState());
-            });
+        this.startCancelled = false;
+        this.pendingDevice = { device, path: devicePath };
+        const finishCheck = () => {
+            this.isStarting = false;
+            this.pendingDevice = null;
+            return this.startCancelled || this.isQuitting;
+        };
+        this.startGuard({ device, path: devicePath, localIP, remoteIP }).then((conflict) => {
+            if (finishCheck()) {
+                return callback(new Error('PPP start cancelled'), this.currentState());
+            }
+            if (conflict) {
+                return callback(new Error(conflict), this.currentState());
+            }
+            return this.launchPPP(device, devicePath, baudRate, localIP, remoteIP, callback);
+        }, (err) => {
+            const cancelled = finishCheck();
+            const error = new Error(cancelled ? 'PPP start cancelled' : 'Could not verify PPP configuration: ' + (err.message || err));
+            error.retryable = !cancelled;
+            return callback(error, this.currentState());
+        });
     }
 
     launchPPP(device, devicePath, baudRate, localIP, remoteIP, callback) {
@@ -223,18 +248,7 @@ class PPPConnection {
                 // Unexpected exit - retry without persisting disabled state
                 console.log('PPP process exited unexpectedly. Retrying in 5 seconds...');
                 this.isConnected = false;
-                setTimeout(() => {
-                    if (!this.isQuitting) {
-                        this.startPPP(this.device, this.baudRate, this.localIP, this.remoteIP, (err) => {
-                            if (err) {
-                                console.error('Error restarting PPP connection:', err);
-                                this.isConnected = false;
-                                this.wantEnabled = false;
-                                this.setSettings();
-                            }
-                        });
-                    }
-                }, 5000);
+                setTimeout(() => this.attemptAutoStart(), 5000);
             } else {
                 this.isConnected = false;
                 this.setSettings();
@@ -247,6 +261,13 @@ class PPPConnection {
     }
 
     stopPPP(callback) {
+        if (this.isStarting) {
+            // Start check still pending: cancel it instead of killing a process
+            this.startCancelled = true;
+            this.wantEnabled = false;
+            this.setSettings();
+            return callback(null, this.currentState());
+        }
         if (!this.isConnected) {
             return callback(new Error('PPP is not connected'), this.currentState());
         }

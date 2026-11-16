@@ -79,12 +79,6 @@ settings.init({
 
 const vManager = new videoStream(settings)
 const fcManager = new fcManagerClass(settings)
-const resourceGuard = new ResourceGuard({
-  getFcManager: () => fcManager,
-  getPppManager: () => pppConnectionManager,
-  networkManager
-})
-fcManager.setStartGuard((request) => resourceGuard.checkTelemetryStart(request))
 const logManager = new flightLogger()
 const ntripClient = new ntrip(settings)
 const cloud = new cloudManager(settings, fcManager)
@@ -96,9 +90,14 @@ vManager.setFlightControllerManager(fcManager)
 const logConversion = new logConversionManager(settings)
 const adhocManager = new Adhoc(settings)
 const userMgmt = new userLogin()
-const pppConnectionManager = new pppConnection(settings, {
-  startGuard: (request) => resourceGuard.checkPppStart(request)
-})
+const pppConnectionManager = new pppConnection(settings)
+
+// Must be wired synchronously after construction: PPP autostart runs after
+// async serial detection and already uses the guard.
+const resourceGuard = new ResourceGuard({ fcManager, pppManager: pppConnectionManager, networkManager })
+fcManager.setStartGuard((request) => resourceGuard.checkTelemetryStart(request))
+pppConnectionManager.setStartGuard((request) => resourceGuard.checkPppStart(request))
+networkManager.setStaticAddressGuard((subnet) => resourceGuard.checkStaticIp(subnet))
 
 // Graceful shutdown implementation
 let isShuttingDown = false
@@ -642,8 +641,8 @@ app.post('/api/pppmodify', authenticateToken, [
     pppConnectionManager.stopPPP((err, settings) => {
       if (err) {
         //console.log('Error in /api/pppmodify', { message: err })
-        console.log(JSON.stringify({settings, error: err }))
-        res.send(JSON.stringify({settings, error: err }))
+        console.log('Error in /api/pppmodify: ' + (err.message || err))
+        res.send(JSON.stringify({settings, error: err.message || err }))
         return
       } else {
         res.send(JSON.stringify({settings}))
@@ -1536,11 +1535,6 @@ app.post('/api/networkedit', authenticateToken, [
   if (!errors.isEmpty()) {
     return sendValidationError(res, errors)
   }
-  const staticConflict = resourceGuard.checkStaticIps(
-    [networkManager.requestedStaticAddress(req.body.conSettings)].filter(Boolean))
-  if (staticConflict) {
-    return sendApiError(res, 409, staticConflict)
-  }
   networkManager.editConnection(req.body.conName, req.body.conSettings, (err) => {
     if (err) {
       return sendApiError(res, 500, err)
@@ -1570,11 +1564,6 @@ app.post('/api/networkadd', authenticateToken, [
   if (!errors.isEmpty()) {
     return sendValidationError(res, errors)
   }
-  const staticConflict = resourceGuard.checkStaticIps(
-    [networkManager.requestedStaticAddress(req.body.conSettings)].filter(Boolean))
-  if (staticConflict) {
-    return sendApiError(res, 409, staticConflict)
-  }
   networkManager.addConnection(req.body.conName, req.body.conType, req.body.conAdapter, req.body.conSettings, (err, uuid) => {
     if (err) {
       return sendApiError(res, 500, err)
@@ -1603,12 +1592,6 @@ app.post('/api/ethernetalias', authenticateToken, [
   if (!errors.isEmpty()) {
     return sendValidationError(res, errors)
   }
-  if (req.body.enabled && req.body.ip) {
-    const staticConflict = resourceGuard.checkStaticIp({ ip: req.body.ip, subnet: req.body.subnet || '255.255.255.0' })
-    if (staticConflict) {
-      return sendApiError(res, 409, staticConflict)
-    }
-  }
   networkManager.setEthernetAlias(req.body, (err) => {
     if (err) {
       return sendApiError(res, 500, err)
@@ -1636,12 +1619,6 @@ app.post('/api/ethernetaliases', authenticateToken, [
   const errors = validationResult(req)
   if (!errors.isEmpty()) {
     return sendValidationError(res, errors)
-  }
-  const staticConflict = resourceGuard.checkStaticIps(req.body.aliases
-    .filter(item => item && item.ip)
-    .map(item => ({ ip: item.ip, subnet: item.subnet || '255.255.255.0' })))
-  if (staticConflict) {
-    return sendApiError(res, 409, staticConflict)
   }
   networkManager.setEthernetAliases(req.body.aliases, (err) => {
     if (err) {

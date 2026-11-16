@@ -509,14 +509,11 @@ class FCDetails {
   }
 
   closeLink (callback) {
-    // stop the serial link
+    // Stops mavlink-router only. The DataFlash logger reads UDP 14541 and
+    // survives router restarts (reconnects, output changes); it is stopped
+    // when telemetry is switched off.
     this.active = false
-    
-    // Stop dataflash logger if running
-    if (this.dflogger !== null) {
-      this.stopDFLogger()
-    }
-    
+
     if (this.router && this.router.exitCode === null) {
       this.router.kill('SIGINT')
       console.log('Trying to close router')
@@ -732,6 +729,7 @@ class FCDetails {
     } else {
       // close link
       this.activeDevice = null
+      this.stopDFLogger()
       this.closeLink(() => {
         this.saveSerialSettings()
         clearInterval(this.intervalObj)
