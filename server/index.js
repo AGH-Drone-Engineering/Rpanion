@@ -1643,8 +1643,6 @@ app.post('/api/wifisettings', authenticateToken, [
     return res.json(data || { error: null })
   })
 })
-  })
-})
 
 // Pass GUI requests to the React app only in production mode
 if (process.env.NODE_ENV !== 'development')
