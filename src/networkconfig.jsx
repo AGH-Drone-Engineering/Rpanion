@@ -10,6 +10,7 @@ import React from 'react';
 import IPAddressInput from './components/IPAddressInput.jsx';
 import EthernetConfigSection from './components/network/EthernetConfigSection.jsx';
 import NewConnectionModal from './components/network/NewConnectionModal.jsx';
+import basePage from './basePage.jsx';
 import './css/styles.css';
 
 async function requestApi(url, options = {}) {
@@ -24,8 +25,6 @@ async function requestApi(url, options = {}) {
   }
   return data;
 }
-
-import basePage from './basePage.jsx';
 
 class NetworkConfig extends basePage {
   constructor(props) {
