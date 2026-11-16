@@ -7,7 +7,7 @@ const execFileAsync = util.promisify(execFile)
 
 async function getAdapters (callback) {
   try {
-    const { stdout } = await execFileAsync('sudo', ['nmcli', '-t', '-f', 'device,type,state', 'dev'])
+    const { stdout } = await execFileAsync('nmcli', ['-t', '-f', 'device,type,state', 'dev'])
     const netStatusList = []
 
     let cachedWifiChannels = null
@@ -63,7 +63,7 @@ async function getAdapters (callback) {
 }
 
 function getWirelessStatus (callback) {
-  execFile('sudo', ['nmcli', '-t', 'radio', 'wifi'], (error, stdout, stderr) => {
+  execFile('nmcli', ['-t', 'radio', 'wifi'], (error, stdout, stderr) => {
     if (stderr || error) {
       console.error(`exec error in getWirelessStatus: ${error || stderr}`)
       return callback(stderr || error)
@@ -101,7 +101,7 @@ function resetWifiWatchdogState () {
 
 function activateConnection (conName, callback) {
   resetWifiWatchdogState()
-  execFile('sudo', ['nmcli', '-g', 'connection.id', 'connection', 'show', conName], (errShow, stdoutShow) => {
+  execFile('nmcli', ['-g', 'connection.id', 'connection', 'show', conName], (errShow, stdoutShow) => {
     const conId = (stdoutShow || '').trim()
     const autoVal = (conId === 'WiFiAP') ? 'no' : 'yes'
     execFile('sudo', ['nmcli', 'connection', 'mod', conName, 'connection.autoconnect', autoVal], (error, stdout, stderr) => {
@@ -119,7 +119,7 @@ function activateConnection (conName, callback) {
             errMsg = 'DHCP timeout: No response from DHCP server. An IP address could not be obtained.'
           }
 
-          execFile('sudo', ['nmcli', '-g', 'connection.type', 'connection', 'show', conName], (errType, stdoutType) => {
+          execFile('nmcli', ['-g', 'connection.type', 'connection', 'show', conName], (errType, stdoutType) => {
             const conType = (stdoutType || '').trim()
             if (conType === '802-11-wireless') {
               execFile('sudo', ['nmcli', 'connection', 'up', 'WiFiAP'], () => {
@@ -140,7 +140,7 @@ function activateConnection (conName, callback) {
 }
 
 function deactivateConnection (conName, callback) {
-  execFile('sudo', ['nmcli', '-g', 'connection.id', 'connection', 'show', conName], (errShow, stdoutShow) => {
+  execFile('nmcli', ['-g', 'connection.id', 'connection', 'show', conName], (errShow, stdoutShow) => {
     const conId = (stdoutShow || '').trim()
     if (conId === 'Ethernet-Server' || conId === 'WiFiAP') {
       console.log('Blocked deactivation of fallback profile: ' + conId)
@@ -327,7 +327,7 @@ function addConnection (conNameStr, conType, conAdapter, conSettings, callback) 
         console.error(`exec error in addConnection: ${error || stderr}`)
         return callback(stderr || error)
       }
-      execFile('sudo', ['nmcli', '-g', 'connection.uuid', 'connection', 'show', conNameStr], (errUuid, stdoutUuid) => {
+      execFile('nmcli', ['-g', 'connection.uuid', 'connection', 'show', conNameStr], (errUuid, stdoutUuid) => {
         if (errUuid) {
           return callback(null, 'AddOK')
         }
@@ -343,7 +343,7 @@ function addConnection (conNameStr, conType, conAdapter, conSettings, callback) 
         console.error(`exec error in addConnection eth: ${error || stderr}`)
         return callback(stderr || error)
       }
-      execFile('sudo', ['nmcli', '-g', 'connection.uuid', 'connection', 'show', conNameStr], (errUuid, stdoutUuid) => {
+      execFile('nmcli', ['-g', 'connection.uuid', 'connection', 'show', conNameStr], (errUuid, stdoutUuid) => {
         if (errUuid) {
           return callback(null, 'AddOK')
         }
@@ -356,7 +356,7 @@ function addConnection (conNameStr, conType, conAdapter, conSettings, callback) 
 async function editConnection (conName, conSettings, callback) {
   resetWifiWatchdogState()
   try {
-    const { stdout: stdoutShow } = await execFileAsync('sudo', ['nmcli', '-g', 'connection.id', 'connection', 'show', conName])
+    const { stdout: stdoutShow } = await execFileAsync('nmcli', ['-g', 'connection.id', 'connection', 'show', conName])
     const conId = (stdoutShow || '').trim()
 
     if (conId === 'Ethernet-Server' && conSettings.ipaddresstype && conSettings.ipaddresstype !== 'shared') {
@@ -368,7 +368,7 @@ async function editConnection (conName, conSettings, callback) {
       const newPrio = parseInt(conSettings.priority, 10)
       if (conId === 'Ethernet-Server') {
         try {
-          const { stdout: stdoutClient } = await execFileAsync('sudo', ['nmcli', '-g', 'connection.autoconnect-priority', 'connection', 'show', 'Ethernet-Client'])
+          const { stdout: stdoutClient } = await execFileAsync('nmcli', ['-g', 'connection.autoconnect-priority', 'connection', 'show', 'Ethernet-Client'])
           const clientPrio = parseInt((stdoutClient || '').trim(), 10)
           if (!isNaN(clientPrio) && newPrio >= clientPrio) {
             return callback(`Ethernet-Server priority (${newPrio}) must be lower than Ethernet-Client priority (${clientPrio})`)
@@ -376,7 +376,7 @@ async function editConnection (conName, conSettings, callback) {
         } catch (_) {}
       } else if (conId === 'Ethernet-Client') {
         try {
-          const { stdout: stdoutServer } = await execFileAsync('sudo', ['nmcli', '-g', 'connection.autoconnect-priority', 'connection', 'show', 'Ethernet-Server'])
+          const { stdout: stdoutServer } = await execFileAsync('nmcli', ['-g', 'connection.autoconnect-priority', 'connection', 'show', 'Ethernet-Server'])
           const serverPrio = parseInt((stdoutServer || '').trim(), 10)
           if (!isNaN(serverPrio) && newPrio <= serverPrio) {
             return callback(`Ethernet-Client priority (${newPrio}) must be higher than Ethernet-Server priority (${serverPrio})`)
@@ -443,7 +443,7 @@ async function editConnection (conName, conSettings, callback) {
       } catch (_) {}
     }
 
-    const { stdout: stdoutDev } = await execFileAsync('sudo', ['nmcli', '-t', '-f', 'GENERAL.STATE', 'connection', 'show', conName]).catch(() => ({ stdout: '' }))
+    const { stdout: stdoutDev } = await execFileAsync('nmcli', ['-t', '-f', 'GENERAL.STATE', 'connection', 'show', conName]).catch(() => ({ stdout: '' }))
     if ((stdoutDev || '').includes('activated')) {
       console.log('Re-applying modified active connection: ' + conName)
       await execFileAsync('sudo', ['nmcli', 'connection', 'up', conName]).catch(errUp => {
@@ -460,7 +460,7 @@ async function editConnection (conName, conSettings, callback) {
 
 function deleteConnection (conName, callback) {
   resetWifiWatchdogState()
-  execFile('sudo', ['nmcli', '-g', 'connection.id', 'connection', 'show', conName], (errShow, stdoutShow) => {
+  execFile('nmcli', ['-g', 'connection.id', 'connection', 'show', conName], (errShow, stdoutShow) => {
     const conId = (stdoutShow || '').trim()
     if (conId === 'Ethernet-Server' || conId === 'Ethernet-Client' || conId === 'WiFiAP') {
       console.log('Blocked deletion of system profile: ' + conId)
@@ -479,20 +479,15 @@ function deleteConnection (conName, callback) {
 
 async function getConnections (callback) {
   try {
-    const { stdout: output } = await execFileAsync('sudo', ['nmcli', '-t', '-f', 'NAME,UUID,TYPE,DEVICE', 'connection', 'show'])
+    const { stdout: output } = await execFileAsync('nmcli', ['-t', '-f', 'NAME,UUID,TYPE,DEVICE', 'connection', 'show'])
     const allConns = output.toString().split('\n').filter(Boolean)
     const conStatusList = []
+    const uuids = []
 
-    await Promise.all(allConns.map(async (item) => {
+    allConns.forEach((item) => {
       const connection = item.split(':')
       if (connection.length >= 3) {
         const uuid = connection[1]
-        let subout = ''
-        try {
-          const { stdout: ifaceOut } = await execFileAsync('sudo', ['nmcli', '-s', '-t', '-f', 'connection.interface-name', 'connection', 'show', uuid])
-          subout = (ifaceOut.toString().split(':')[1] || '').trim()
-        } catch (_) {}
-
         const state = (connection[3] === '' || connection[3] === '--') ? '' : (connection[3] || '')
         conStatusList.push({
           value: uuid,
@@ -500,10 +495,42 @@ async function getConnections (callback) {
           labelPre: connection[0],
           type: connection[2],
           state: state,
-          attachedIface: subout
+          attachedIface: ''
+        })
+        if (uuid) {
+          uuids.push(uuid)
+        }
+      }
+    })
+
+    if (uuids.length > 0) {
+      let rawOut = ''
+      try {
+        const res = await execFileAsync('nmcli', ['-s', '-t', '-f', 'connection.uuid,connection.interface-name', 'connection', 'show', ...uuids])
+        rawOut = res.stdout || ''
+      } catch (errBatch) {
+        rawOut = (errBatch && errBatch.stdout) || ''
+      }
+
+      if (rawOut) {
+        const ifaceMap = new Map()
+        let currentUuid = null
+        for (const line of rawOut.split('\n')) {
+          if (line.startsWith('connection.uuid:')) {
+            currentUuid = line.slice('connection.uuid:'.length).trim()
+          } else if (line.startsWith('connection.interface-name:') && currentUuid) {
+            const iface = line.slice('connection.interface-name:'.length).trim()
+            ifaceMap.set(currentUuid, iface)
+            currentUuid = null
+          }
+        }
+        conStatusList.forEach(conn => {
+          if (ifaceMap.has(conn.value)) {
+            conn.attachedIface = ifaceMap.get(conn.value)
+          }
         })
       }
-    }))
+    }
 
     return callback(null, conStatusList)
   } catch (e) {
@@ -513,11 +540,9 @@ async function getConnections (callback) {
 }
 
 function getConnectionDetails (conName, callback) {
-  execFile('sudo', ['nmcli', '-s', '-t', '-f', 'ipv4.addresses,802-11-wireless.band,ipv4.method,IP4.ADDRESS,802-11-wireless.ssid,802-11-wireless.mode,802-11-wireless-security.key-mgmt,802-11-wireless-security.psk,connection.interface-name,802-11-wireless.channel,connection.autoconnect-priority', 'connection', 'show', conName], (error, stdout, stderr) => {
-    if (stderr || error) {
-      console.error(`exec error in getConnectionDetails: ${error || stderr}`)
-      return callback(stderr || error)
-    }
+  const queryArgs = ['-s', '-t', '-f', 'ipv4.addresses,802-11-wireless.band,ipv4.method,IP4.ADDRESS,802-11-wireless.ssid,802-11-wireless.mode,802-11-wireless-security.key-mgmt,802-11-wireless-security.psk,connection.interface-name,802-11-wireless.channel,connection.autoconnect-priority', 'connection', 'show', conName]
+
+  const parseDetails = (stdout) => {
     const ret = { DHCP: 'auto', IP: '', subnet: '', mode: '', wpaType: 'none', password: '', priority: 0 }
     let configuredIP = ''
     let configuredSubnet = ''
@@ -564,7 +589,20 @@ function getConnectionDetails (conName, callback) {
       ret.subnet = configuredSubnet || activeSubnet
     }
 
-    return callback(null, ret)
+    return ret
+  }
+
+  execFile('nmcli', queryArgs, (error, stdout, stderr) => {
+    if (!error && !stderr) {
+      return callback(null, parseDetails(stdout))
+    }
+    execFile('sudo', ['nmcli', ...queryArgs], (errorSudo, stdoutSudo, stderrSudo) => {
+      if (stderrSudo || errorSudo) {
+        console.error(`exec error in getConnectionDetails: ${errorSudo || stderrSudo}`)
+        return callback(stderrSudo || errorSudo)
+      }
+      return callback(null, parseDetails(stdoutSudo))
+    })
   })
 }
 
