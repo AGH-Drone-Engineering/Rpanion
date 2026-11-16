@@ -5,10 +5,8 @@ const path = require('path')
 const { spawn, spawnSync } = require('child_process')
 const si = require('systeminformation')
 
-const { common, standard } = require('node-mavlink')
-const GLOBAL_POS_MSG_ID = (common && common.GlobalPositionInt && common.GlobalPositionInt.MSG_ID) ||
-  (standard && standard.GlobalPositionInt && standard.GlobalPositionInt.MSG_ID) ||
-  33
+const { standard } = require('node-mavlink')
+const GLOBAL_POS_MSG_ID = standard.GlobalPositionInt.MSG_ID
 const mavManager = require('../mavlink/mavManager.js')
 const logpaths = require('./paths.js')
 const { detectSerialDevices, isModemManagerInstalled, isPi, getSerialPathFromValue } = require('./serialDetection.js')
