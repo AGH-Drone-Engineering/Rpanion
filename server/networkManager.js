@@ -3,6 +3,7 @@ const util = require('util')
 const fs = require('fs')
 const settings = require('settings-store')
 const { toSubnet } = require('./ipv4Subnet')
+const wifiWatchdogState = require('./wifiWatchdogState')
 
 const execFileAsync = util.promisify(execFile)
 
@@ -85,19 +86,7 @@ function setWirelessStatus (status, callback) {
 }
 
 function resetWifiWatchdogState () {
-  const paths = [
-    '/run/rpanion-wifi/connected-client',
-    '/run/rpanion-wifi/disconnect-time',
-    '/run/rpanion-wifi-connected-client',
-    '/run/rpanion-wifi-disconnect-time'
-  ]
-  paths.forEach((p) => {
-    try {
-      if (fs.existsSync(p)) {
-        fs.unlinkSync(p)
-      }
-    } catch (_) {}
-  })
+  wifiWatchdogState.reset()
 }
 
 function activateConnection (conName, callback) {
@@ -778,42 +767,16 @@ function applyEthernetAlias () {
 }
 
 function getWifiSettings (callback) {
-  let apAutoReconnect = true
-  try {
-    apAutoReconnect = settings.value('wifi.apAutoReconnect', true)
-  } catch (_) {}
-  if (fs.existsSync('/etc/default/rpanion-wifi')) {
-    try {
-      const content = fs.readFileSync('/etc/default/rpanion-wifi', 'utf8')
-      const match = content.match(/AP_AUTO_RECONNECT=(true|false)/i)
-      if (match) {
-        apAutoReconnect = match[1].toLowerCase() === 'true'
-      }
-    } catch (_) {}
-  }
-  callback(null, { apAutoReconnect })
+  callback(null, wifiWatchdogState.readConfig())
 }
 
 async function setWifiSettings (newSettings, callback) {
-  const apAutoReconnect = Boolean(newSettings.apAutoReconnect !== false)
+  const apAutoReconnect = newSettings.apAutoReconnect !== false
   try {
-    settings.setValue('wifi.apAutoReconnect', apAutoReconnect)
-  } catch (_) {}
-
-  const configContent = `AP_AUTO_RECONNECT=${apAutoReconnect}\n`
-  try {
-    fs.writeFileSync('/etc/default/rpanion-wifi', configContent)
-  } catch (_) {
-    try {
-      fs.writeFileSync('/tmp/rpanion-wifi', configContent)
-      await execFileAsync('sudo', ['cp', '/tmp/rpanion-wifi', '/etc/default/rpanion-wifi'])
-      await execFileAsync('sudo', ['chown', 'rpanion:rpanion', '/etc/default/rpanion-wifi'])
-      try { fs.unlinkSync('/tmp/rpanion-wifi') } catch (_) {}
-    } catch (err2) {
-      console.error('Error writing /etc/default/rpanion-wifi: ' + err2)
-    }
+    await wifiWatchdogState.writeConfig({ apAutoReconnect })
+  } catch (err) {
+    return callback(new Error(`Cannot save Wi-Fi settings: ${err.message}`))
   }
-
   callback(null, { apAutoReconnect })
 }
 

@@ -36,34 +36,38 @@ describe('Network Functions', function () {
     })
   })
 
-  it('#resetWifiWatchdogState()', function (done) {
-    const testFile = '/run/rpanion-wifi/connected-client'
-    fs.mkdirSync('/run/rpanion-wifi', { recursive: true })
-    fs.writeFileSync(testFile, 'test')
-    assert.equal(fs.existsSync(testFile), true)
-    networkManager.resetWifiWatchdogState()
-    assert.equal(fs.existsSync(testFile), false)
-    done()
-  })
+  describe('watchdog files', function () {
+    const os = require('os')
+    const path = require('path')
+    let dir
 
-  it('#getWifiSettings() and #setWifiSettings()', function (done) {
-    networkManager.getWifiSettings(function (err, initial) {
-      assert.equal(err, null)
-      assert.equal(typeof initial.apAutoReconnect, 'boolean')
+    beforeEach(function () {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rpanion-wifi-'))
+      process.env.RPANION_WIFI_STATE_DIR = dir
+      process.env.RPANION_WIFI_CONFIG = path.join(dir, 'rpanion-wifi.conf')
+    })
 
-      networkManager.setWifiSettings({ apAutoReconnect: false }, function (err2, result) {
-        assert.equal(err2, null)
+    afterEach(function () {
+      delete process.env.RPANION_WIFI_STATE_DIR
+      delete process.env.RPANION_WIFI_CONFIG
+      fs.rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('#resetWifiWatchdogState()', function () {
+      const testFile = path.join(dir, 'disconnect-time')
+      fs.writeFileSync(testFile, '123')
+      networkManager.resetWifiWatchdogState()
+      assert.equal(fs.existsSync(testFile), false)
+    })
+
+    it('#getWifiSettings() and #setWifiSettings()', function (done) {
+      networkManager.setWifiSettings({ apAutoReconnect: false }, function (err, result) {
+        assert.equal(err, null)
         assert.equal(result.apAutoReconnect, false)
-
-        networkManager.getWifiSettings(function (err3, current) {
-          assert.equal(err3, null)
+        networkManager.getWifiSettings(function (err2, current) {
+          assert.equal(err2, null)
           assert.equal(current.apAutoReconnect, false)
-
-          // Restore original
-          networkManager.setWifiSettings({ apAutoReconnect: initial.apAutoReconnect }, function (err4) {
-            assert.equal(err4, null)
-            done()
-          })
+          done()
         })
       })
     })

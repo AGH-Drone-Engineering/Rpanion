@@ -17,7 +17,7 @@ fi
 
 # Configure shared runtime directory for wifi watchdog
 sudo tee /etc/tmpfiles.d/rpanion-wifi.conf << 'EOF'
-d /run/rpanion-wifi 0777 root root -
+d /run/rpanion-wifi 0770 root rpanion -
 EOF
 sudo systemd-tmpfiles --create
 
