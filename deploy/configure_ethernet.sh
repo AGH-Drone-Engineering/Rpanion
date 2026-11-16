@@ -4,6 +4,11 @@ set -x
 
 echo "Configuring Ethernet profiles..."
 
+# The rpanion user is normally created by the .deb postinst, which runs after this script
+if ! getent passwd rpanion >/dev/null; then
+    sudo adduser --system --group --quiet rpanion
+fi
+
 # Detect primary ethernet interface (supports eth0 on RPi 3/4 and end0 on RPi 5)
 ETH_IFACE=$(nmcli -t -f DEVICE,TYPE dev 2>/dev/null | grep ":ethernet$" | head -n1 | cut -d: -f1)
 if [ -z "$ETH_IFACE" ]; then

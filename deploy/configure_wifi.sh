@@ -4,6 +4,11 @@ set -x
 
 echo "Configuring WiFi power save and AP watchdog..."
 
+# The rpanion user is normally created by the .deb postinst, which runs after this script
+if ! getent passwd rpanion >/dev/null; then
+    sudo adduser --system --group --quiet rpanion
+fi
+
 # Disable WiFi power save (2 = disabled in NetworkManager)
 sudo tee /etc/NetworkManager/conf.d/disable-wifi-powersave.conf << 'EOF'
 [connection]

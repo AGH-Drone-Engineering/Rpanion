@@ -29,7 +29,9 @@ case "$1" in
         systemctl start rpanion-server
 
         # Allow relevant services to be disabled or enabled without password
-        cat <<'EOF' > /etc/sudoers.d/allow-vpn-control
+        # Validate before install: a broken sudoers fragment disables sudo entirely
+        SUDOERS_TMP=$(mktemp)
+        cat <<'EOF' > "$SUDOERS_TMP"
 rpanion ALL=(ALL) NOPASSWD: \
   /usr/bin/systemctl disable wg-quick@*, \
   /usr/bin/systemctl enable wg-quick@*, \
@@ -46,13 +48,16 @@ rpanion ALL=(ALL) NOPASSWD: \
   /usr/sbin/iw dev * scan ap-force, \
   /usr/bin/pkill -SIGTERM pppd, \
   /usr/bin/cat /var/lib/NetworkManager/dnsmasq-*, \
-  /usr/sbin/ip *, \
-  /usr/bin/ip *, \
-  /sbin/ip *, \
-  /bin/ip *
+  /usr/sbin/ip addr add * dev *, \
+  /usr/sbin/ip addr del * dev *
 EOF
 
-        chmod 440 /etc/sudoers.d/allow-vpn-control
+        if visudo -cf "$SUDOERS_TMP" >/dev/null; then
+            install -o root -g root -m 440 "$SUDOERS_TMP" /etc/sudoers.d/allow-vpn-control
+        else
+            echo "Generated sudoers fragment is invalid, keeping the existing one" >&2
+        fi
+        rm -f "$SUDOERS_TMP"
         ;;
 esac
 
