@@ -329,24 +329,29 @@ class FCDetails {
     const pythonPath = logpaths.getPythonPath()
     const dfloggerPath = path.join(__dirname, '..', 'python', 'dflogger.py')
     
-    this.dflogger = spawn(pythonPath, [
+    const proc = spawn(pythonPath, [
       dfloggerPath,
       '--connection', 'udp:127.0.0.1:14541',
       '--logdir', logpaths.flightsLogsDir,
       '--rotate-on-disarm'
     ])
+    this.dflogger = proc
 
-    this.dflogger.stdout.on('data', (data) => {
+    proc.stdout.on('data', (data) => {
       console.log(`DFLogger: ${data}`)
     })
 
-    this.dflogger.stderr.on('data', (data) => {
+    proc.stderr.on('data', (data) => {
       console.error(`DFLogger stderr: ${data}`)
     })
 
-    this.dflogger.on('close', (code) => {
+    proc.on('close', (code) => {
       console.log(`DFLogger exited with code ${code}`)
-      this.dflogger = null
+      // On reconnect a new logger is spawned before the old one exits;
+      // clearing unconditionally would orphan the new process.
+      if (this.dflogger === proc) {
+        this.dflogger = null
+      }
     })
   }
 

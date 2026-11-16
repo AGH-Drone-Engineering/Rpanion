@@ -130,3 +130,42 @@ describe('Flight Controller Functions', function () {
     assert.equal(sent.diskTotalMiB, undefined)
   })
 })
+
+describe('DataFlash logger process tracking', function () {
+  const logpaths = require('./paths.js')
+  const os = require('os')
+  const path = require('path')
+  let fakePython
+
+  before(function () {
+    try {
+      settings.init({ appName: 'rpanion-server', publisherName: 'Rpanion', reverseDNS: 'com.rpanion.rpanion-server' })
+    } catch (_) {}
+    fakePython = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dflogger-')), 'python')
+    fs.writeFileSync(fakePython, '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 })
+  })
+
+  afterEach(function () {
+    sinon.restore()
+  })
+
+  it('keeps the reference to a new logger when the previous one exits after restart', function (done) {
+    sinon.stub(logpaths, 'getPythonPath').returns(fakePython)
+    settings.clear()
+    const FC = new FCManagerClass(settings)
+
+    FC.startDFLogger()
+    const first = FC.dflogger
+    FC.stopDFLogger()
+    FC.startDFLogger()
+    const second = FC.dflogger
+
+    first.on('close', () => {
+      setImmediate(() => {
+        assert.strictEqual(FC.dflogger, second)
+        second.on('close', () => done())
+        FC.stopDFLogger()
+      })
+    })
+  })
+})
