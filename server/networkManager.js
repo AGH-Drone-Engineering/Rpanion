@@ -2,9 +2,9 @@ const { exec, execFile } = require('child_process')
 const util = require('util')
 const fs = require('fs')
 const settings = require('settings-store')
-const { toSubnet } = require('./ipv4Subnet')
+const { toSubnet, prefixToNetmask } = require('./ipv4Subnet')
 const wifiWatchdogState = require('./wifiWatchdogState')
-const { parseIwChannels } = require('./networkArgs')
+const { parseIwChannels, buildIpv4Args, buildWifiArgs } = require('./networkArgs')
 
 const execFileAsync = util.promisify(execFile)
 
@@ -275,64 +275,36 @@ function getWifiScan (callback) {
 
 function addConnection (conNameStr, conType, conAdapter, conSettings, callback) {
   resetWifiWatchdogState()
-  if (conType === 'wifi') {
-    if (conSettings.priority === undefined || conSettings.priority === null || conSettings.priority === '') {
-      conSettings.priority = conSettings.mode === 'ap' ? 0 : 100
-    }
-    const nmcliArgs = ['connection', 'add', 'type', conType, 'ifname', conAdapter, 'con-name', conNameStr, 'ssid', conSettings.ssid, '802-11-wireless.mode', conSettings.mode]
-    if (conSettings.priority !== undefined && conSettings.priority !== null && conSettings.priority !== '') {
-      nmcliArgs.push('connection.autoconnect-priority', conSettings.priority.toString())
-    }
-    if (conSettings.wpaType && conSettings.wpaType !== 'none') {
-      nmcliArgs.push('802-11-wireless-security.key-mgmt', conSettings.wpaType, '802-11-wireless-security.psk', conSettings.password)
-      if (conSettings.mode === 'ap') {
-        nmcliArgs.push('802-11-wireless-security.proto', 'rsn', '802-11-wireless-security.pairwise', 'ccmp', '802-11-wireless-security.group', 'ccmp')
-      }
-    }
-    if (conSettings.mode === 'ap') {
-      nmcliArgs.push('802-11-wireless.band', conSettings.band)
-      if (conSettings.channel && conSettings.channel !== '0') {
-        nmcliArgs.push('802-11-wireless.channel', conSettings.channel)
-      }
-      nmcliArgs.push('ipv4.method', 'shared')
-      nmcliArgs.push('ipv4.addresses', `${conSettings.ipaddress}/24`)
-    } else {
-      if (conSettings.ipaddresstype === 'auto') {
-        nmcliArgs.push('ipv4.method', 'auto')
-      } else if (conSettings.ipaddress && conSettings.subnet) {
-        nmcliArgs.push('ipv4.addresses', `${conSettings.ipaddress}/${netmask2CIDR(conSettings.subnet)}`, 'ipv4.method', 'manual')
-      }
-    }
-
-    execFile('sudo', ['nmcli', ...nmcliArgs], (error, stdout, stderr) => {
-      if (stderr || error) {
-        console.error(`exec error in addConnection: ${error || stderr}`)
-        return callback(stderr || error)
-      }
-      execFile('nmcli', ['-g', 'connection.uuid', 'connection', 'show', conNameStr], (errUuid, stdoutUuid) => {
-        if (errUuid) {
-          return callback(null, 'AddOK')
-        }
-        return callback(null, stdoutUuid.trim())
-      })
-    })
-  } else {
-    if (conSettings.priority === undefined || conSettings.priority === null || conSettings.priority === '') {
-      conSettings.priority = 100
-    }
-    execFile('sudo', ['nmcli', 'connection', 'add', 'type', conType, 'ifname', conAdapter, 'con-name', conNameStr, 'connection.autoconnect', 'no', 'connection.autoconnect-priority', conSettings.priority.toString()], (error, stdout, stderr) => {
-      if (stderr || error) {
-        console.error(`exec error in addConnection eth: ${error || stderr}`)
-        return callback(stderr || error)
-      }
-      execFile('nmcli', ['-g', 'connection.uuid', 'connection', 'show', conNameStr], (errUuid, stdoutUuid) => {
-        if (errUuid) {
-          return callback(null, 'AddOK')
-        }
-        return callback(null, stdoutUuid.trim())
-      })
-    })
+  let ipv4Args
+  let typeArgs
+  try {
+    ipv4Args = buildIpv4Args(conSettings, { isNew: true }).args
+    typeArgs = conType === 'wifi' ? buildWifiArgs(conSettings, { isNew: true }) : []
+  } catch (err) {
+    return callback(err)
   }
+  const hasPriority = conSettings.priority !== undefined && conSettings.priority !== null && conSettings.priority !== ''
+  const priority = hasPriority ? conSettings.priority : (conType === 'wifi' && conSettings.mode === 'ap' ? 0 : 100)
+  const nmcliArgs = ['connection', 'add', 'type', conType, 'ifname', conAdapter, 'con-name', conNameStr,
+    'connection.autoconnect-priority', priority.toString()]
+  if (conType !== 'wifi') {
+    // Extra wired profiles must not take eth0 over from Ethernet-Client/Ethernet-Server on boot
+    nmcliArgs.push('connection.autoconnect', 'no')
+  }
+  nmcliArgs.push(...typeArgs, ...ipv4Args)
+
+  execFile('sudo', ['nmcli', ...nmcliArgs], (error, stdout, stderr) => {
+    if (stderr || error) {
+      console.error(`exec error in addConnection: ${error || stderr}`)
+      return callback(stderr || error)
+    }
+    execFile('nmcli', ['-g', 'connection.uuid', 'connection', 'show', conNameStr], (errUuid, stdoutUuid) => {
+      if (errUuid) {
+        return callback(null, 'AddOK')
+      }
+      return callback(null, stdoutUuid.trim())
+    })
+  })
 }
 
 async function editConnection (conName, conSettings, callback) {
@@ -381,39 +353,10 @@ async function editConnection (conName, conSettings, callback) {
       modArgs.push('connection.autoconnect-priority', conSettings.priority.toString())
     }
 
-    if (!conSettings.ssid || conSettings.mode === 'infrastructure') {
-      if (conSettings.ipaddresstype === 'auto') {
-        modArgs.push('ipv4.method', 'auto', 'ipv4.addresses', '')
-      } else if (conSettings.ipaddress && conSettings.subnet) {
-        const cidr = netmask2CIDR(conSettings.subnet) || 24
-        modArgs.push('ipv4.addresses', `${conSettings.ipaddress}/${cidr}`, 'ipv4.method', conSettings.ipaddresstype)
-      }
+    if (conSettings.mode) {
+      modArgs.push(...buildWifiArgs(conSettings))
     }
-
-    if (conSettings.mode === 'ap') {
-      if (conSettings.ssid) modArgs.push('802-11-wireless.ssid', conSettings.ssid)
-      if (conSettings.band) modArgs.push('802-11-wireless.band', conSettings.band)
-      if (conSettings.channel !== undefined) {
-        modArgs.push('802-11-wireless.channel', conSettings.channel !== '0' ? conSettings.channel.toString() : '')
-      }
-      if (conSettings.ipaddress) {
-        modArgs.push('ipv4.addresses', `${conSettings.ipaddress}/24`)
-      }
-      if (conSettings.wpaType && conSettings.wpaType !== 'none') {
-        modArgs.push('802-11-wireless-security.group', 'ccmp', '802-11-wireless-security.wps-method', '1')
-      }
-    } else if (conSettings.mode === 'infrastructure' && conSettings.ssid) {
-      modArgs.push('802-11-wireless.ssid', conSettings.ssid)
-    }
-
-    if (conSettings.mode === 'infrastructure' || conSettings.mode === 'ap') {
-      if (conSettings.wpaType && conSettings.wpaType !== 'none') {
-        modArgs.push('802-11-wireless-security.key-mgmt', conSettings.wpaType)
-        if (conSettings.password) {
-          modArgs.push('802-11-wireless-security.pairwise', 'ccmp', '802-11-wireless-security.psk', conSettings.password)
-        }
-      }
-    }
+    modArgs.push(...buildIpv4Args(conSettings).args)
 
     if (modArgs.length > 3) {
       await execFileAsync('sudo', ['nmcli', ...modArgs])
@@ -544,10 +487,10 @@ function getConnectionDetails (conName, callback) {
         ret.DHCP = val
       } else if (key === 'ipv4.addresses' && val !== '') {
         configuredIP = val.split('/')[0]
-        configuredSubnet = CIDR2netmask(val.split('/')[1])
+        configuredSubnet = prefixToNetmask(val.split('/')[1])
       } else if (key === 'IP4.ADDRESS[1]' && val !== '') {
         activeIP = val.split('/')[0]
-        activeSubnet = CIDR2netmask(val.split('/')[1])
+        activeSubnet = prefixToNetmask(val.split('/')[1])
       } else if (key === '802-11-wireless.mode') {
         ret.mode = val
       } else if (key === '802-11-wireless-security.key-mgmt') {
@@ -586,30 +529,6 @@ function getConnectionDetails (conName, callback) {
       return callback(null, parseDetails(stdoutSudo))
     })
   })
-}
-
-function CIDR2netmask (bitCountstr) {
-  const mask = []
-  let bitCount = parseInt(bitCountstr, 10)
-  for (let i = 0; i < 4; i++) {
-    const n = Math.min(bitCount, 8)
-    mask.push(256 - Math.pow(2, 8 - n))
-    bitCount -= n
-  }
-  return mask.join('.')
-}
-
-function netmask2CIDR (mask) {
-  let cidr = ''
-  for (const m of (mask || '').split('.')) {
-    if (parseInt(m, 10) > 255) { throw 'ERROR: Invalid Netmask' }
-    if (parseInt(m, 10) > 0 && parseInt(m, 10) < 128) { throw 'ERROR: Invalid Netmask' }
-    cidr += (m >>> 0).toString(2)
-  }
-  if (cidr.substring(cidr.search('0'), 32).search('1') !== -1) {
-    throw 'ERROR: Invalid Netmask ' + mask
-  }
-  return cidr.split('1').length - 1
 }
 
 async function getPrimaryEthernetDevice () {
@@ -823,14 +742,12 @@ async function getStaticIPv4Subnets () {
 // as {ip, subnet}, or null when the profile uses DHCP or sets no address.
 // Mirrors the nmcli argument logic: AP profiles always use /24.
 function requestedStaticAddress (conSettings) {
-  if (!conSettings || !conSettings.ipaddress) return null
-  if (conSettings.mode === 'ap') {
-    return { ip: conSettings.ipaddress, subnet: '255.255.255.0' }
+  try {
+    const { address } = buildIpv4Args(conSettings || {})
+    return address ? { ip: address.ip, subnet: prefixToNetmask(address.prefix) } : null
+  } catch (_) {
+    return null
   }
-  if ((conSettings.ipaddresstype === 'manual' || conSettings.ipaddresstype === 'shared') && conSettings.subnet) {
-    return { ip: conSettings.ipaddress, subnet: conSettings.subnet }
-  }
-  return null
 }
 
 module.exports = {

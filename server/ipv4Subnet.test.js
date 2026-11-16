@@ -36,3 +36,14 @@ describe('ipv4Subnet', function () {
     assert.strictEqual(subnetContains(toSubnet('0.0.0.0/0'), '8.8.8.8'), true)
   })
 })
+
+describe('prefixToNetmask', function () {
+  const { prefixToNetmask } = require('./ipv4Subnet')
+  it('converts prefix length to dotted netmask', function () {
+    assert.strictEqual(prefixToNetmask(24), '255.255.255.0')
+    assert.strictEqual(prefixToNetmask('16'), '255.255.0.0')
+    assert.strictEqual(prefixToNetmask(32), '255.255.255.255')
+    assert.strictEqual(prefixToNetmask(0), '0.0.0.0')
+    assert.strictEqual(prefixToNetmask(33), null)
+  })
+})

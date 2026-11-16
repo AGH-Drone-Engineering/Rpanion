@@ -55,8 +55,15 @@ function subnetContains (subnet, ip) {
   return ((net & mask) >>> 0) === ((addr & mask) >>> 0)
 }
 
+function prefixToNetmask (prefix) {
+  const value = Number(prefix)
+  if (!Number.isInteger(value) || value < 0 || value > 32) return null
+  const mask = maskBits(value)
+  return [24, 16, 8, 0].map(shift => (mask >>> shift) & 255).join('.')
+}
+
 function formatSubnet (subnet) {
   return `${subnet.ip}/${subnet.prefix}`
 }
 
-module.exports = { parseIPv4, netmaskToPrefix, toSubnet, subnetContains, formatSubnet }
+module.exports = { parseIPv4, netmaskToPrefix, prefixToNetmask, toSubnet, subnetContains, formatSubnet }
