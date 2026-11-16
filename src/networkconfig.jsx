@@ -1118,8 +1118,11 @@ class NetworkConfig extends basePage {
     const isEthernetServer = Boolean(selectedConnection && selectedConnection.labelPre === 'Ethernet-Server');
     const isEthernet = Boolean(selectedDevice && selectedDevice.type === 'ethernet');
 
+    const ethDeviceName = (selectedDevice && selectedDevice.type === 'ethernet')
+      ? selectedDevice.value
+      : (this.state.netDevice.find(d => d.type === 'ethernet')?.value || 'eth0');
     const activeEthConnection = this.state.netConnection.find(
-      c => c.type === '802-3-ethernet' && (c.state === (selectedDevice ? selectedDevice.value : 'eth0'))
+      c => c.type === '802-3-ethernet' && (c.state === ethDeviceName)
     );
     const isClientActive = Boolean(activeEthConnection && activeEthConnection.labelPre === 'Ethernet-Client');
     const isServerActive = Boolean(activeEthConnection && activeEthConnection.labelPre === 'Ethernet-Server');

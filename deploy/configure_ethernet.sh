@@ -4,12 +4,20 @@ set -x
 
 echo "Configuring Ethernet profiles..."
 
+# Detect primary ethernet interface (supports eth0 on RPi 3/4 and end0 on RPi 5)
+ETH_IFACE=$(nmcli -t -f DEVICE,TYPE dev 2>/dev/null | grep ":ethernet$" | head -n1 | cut -d: -f1)
+if [ -z "$ETH_IFACE" ]; then
+    ETH_IFACE=$(ls /sys/class/net 2>/dev/null | grep -E '^(eth|end|en)' | head -n1 || echo "eth0")
+fi
+echo "Using Ethernet interface: $ETH_IFACE"
+
 # Remove default connection if present
 sudo nmcli connection delete "Wired connection 1" 2>/dev/null || true
 
 # Ethernet-Client: attempts DHCP for 5s (priority 100)
 if nmcli connection show "Ethernet-Client" >/dev/null 2>&1; then
     sudo nmcli connection modify "Ethernet-Client" \
+        connection.interface-name "$ETH_IFACE" \
         connection.autoconnect yes \
         connection.autoconnect-priority 100 \
         connection.autoconnect-retries 1 \
@@ -17,7 +25,7 @@ if nmcli connection show "Ethernet-Client" >/dev/null 2>&1; then
         ipv4.dhcp-timeout 5 \
         ipv4.may-fail no
 else
-    sudo nmcli connection add type ethernet con-name "Ethernet-Client" ifname eth0
+    sudo nmcli connection add type ethernet con-name "Ethernet-Client" ifname "$ETH_IFACE"
     sudo nmcli connection modify "Ethernet-Client" \
         connection.autoconnect yes \
         connection.autoconnect-priority 100 \
@@ -30,12 +38,13 @@ fi
 # Ethernet-Server: DHCP server fallback 10.0.3.1/24 (priority 50)
 if nmcli connection show "Ethernet-Server" >/dev/null 2>&1; then
     sudo nmcli connection modify "Ethernet-Server" \
+        connection.interface-name "$ETH_IFACE" \
         connection.autoconnect yes \
         connection.autoconnect-priority 50 \
         ipv4.method shared \
         ipv4.addresses 10.0.3.1/24
 else
-    sudo nmcli connection add type ethernet con-name "Ethernet-Server" ifname eth0
+    sudo nmcli connection add type ethernet con-name "Ethernet-Server" ifname "$ETH_IFACE"
     sudo nmcli connection modify "Ethernet-Server" \
         connection.autoconnect yes \
         connection.autoconnect-priority 50 \
@@ -59,13 +68,18 @@ sudo tee /etc/NetworkManager/dispatcher.d/99-eth0-alias.sh > /dev/null << 'EOF'
 IFACE="$1"
 ACTION="$2"
 
-if [ "$IFACE" = "eth0" ] && [ "$ACTION" = "up" ]; then
+case "$IFACE" in
+    eth*|end*|en*) ;;
+    *) exit 0 ;;
+esac
+
+if [ "$ACTION" = "up" ]; then
     CONFIG_FILE="/etc/default/rpanion-eth-alias"
     if [ -f "$CONFIG_FILE" ]; then
         . "$CONFIG_FILE"
         if [ -n "$ETH_ALIASES" ]; then
             for entry in $ETH_ALIASES; do
-                ip addr add "$entry" dev eth0 2>/dev/null || true
+                ip addr add "$entry" dev "$IFACE" 2>/dev/null || true
             done
         fi
         if [ "$ALIAS_ENABLED" = "true" ] && [ -n "$ALIAS_IP" ]; then
@@ -81,7 +95,7 @@ if [ "$IFACE" = "eth0" ] && [ "$ACTION" = "up" ]; then
                 "255.255.255.248") PREFIX="29" ;;
                 "255.255.255.252") PREFIX="30" ;;
             esac
-            ip addr add "${ALIAS_IP}/${PREFIX}" dev eth0 2>/dev/null || true
+            ip addr add "${ALIAS_IP}/${PREFIX}" dev "$IFACE" 2>/dev/null || true
         fi
     fi
 fi

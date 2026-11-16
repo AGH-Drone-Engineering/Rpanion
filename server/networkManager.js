@@ -630,7 +630,26 @@ function netmask2CIDR (mask) {
   return cidr.split('1').length - 1
 }
 
-function getEthernetAliases (callback) {
+async function getPrimaryEthernetDevice () {
+  try {
+    const { stdout } = await execFileAsync('nmcli', ['-t', '-f', 'DEVICE,TYPE', 'dev'])
+    const lines = stdout.split('\n').filter(Boolean)
+    for (const line of lines) {
+      const parts = line.split(':')
+      if (parts[1] === 'ethernet') {
+        return parts[0]
+      }
+    }
+  } catch (_) {}
+  try {
+    const ifaces = fs.readdirSync('/sys/class/net')
+    const eth = ifaces.find(name => name.startsWith('eth') || name.startsWith('end') || name.startsWith('en'))
+    if (eth) return eth
+  } catch (_) {}
+  return 'eth0'
+}
+
+async function getEthernetAliases (callback) {
   let aliases = settings.value('ethernet.aliases', [])
   if (!Array.isArray(aliases)) {
     aliases = []
@@ -644,7 +663,8 @@ function getEthernetAliases (callback) {
     settings.setValue('ethernet.aliases', aliases)
   }
 
-  execFile('ip', ['-o', '-4', 'addr', 'show', 'dev', 'eth0'], (err, stdout) => {
+  const ethIface = await getPrimaryEthernetDevice()
+  execFile('ip', ['-o', '-4', 'addr', 'show', 'dev', ethIface], (err, stdout) => {
     const out = stdout || ''
     const result = aliases.map(item => ({
       id: item.id || (item.ip + '-' + item.subnet),
@@ -661,6 +681,7 @@ async function setEthernetAliases (aliasesList, callback) {
     return callback(new Error('Invalid aliases list'))
   }
 
+  const ethIface = await getPrimaryEthernetDevice()
   const oldAliases = settings.value('ethernet.aliases', [])
   const validList = aliasesList.filter(item => item && item.ip).map((item, idx) => ({
     id: item.id || ('alias-' + idx + '-' + Date.now()),
@@ -698,16 +719,16 @@ async function setEthernetAliases (aliasesList, callback) {
       if (!validList.some(newItem => newItem.ip === oldItem.ip)) {
         try {
           const cidr = netmask2CIDR(oldItem.subnet) || 24
-          await execFileAsync('sudo', ['ip', 'addr', 'del', `${oldItem.ip}/${cidr}`, 'dev', 'eth0']).catch(() => {})
+          await execFileAsync('sudo', ['ip', 'addr', 'del', `${oldItem.ip}/${cidr}`, 'dev', ethIface]).catch(() => {})
         } catch (_) {}
       }
     }
   }
 
-  // Add new IPs on eth0
+  // Add new IPs on primary ethernet interface
   for (const entry of aliasEntries) {
     try {
-      await execFileAsync('sudo', ['ip', 'addr', 'add', entry, 'dev', 'eth0']).catch(() => {})
+      await execFileAsync('sudo', ['ip', 'addr', 'add', entry, 'dev', ethIface]).catch(() => {})
     } catch (_) {}
   }
 
@@ -780,6 +801,7 @@ module.exports = {
   getAdapters,
   getConnections,
   getConnectionDetails,
+  getPrimaryEthernetDevice,
   activateConnection,
   deleteConnection,
   editConnection,

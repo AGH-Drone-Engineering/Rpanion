@@ -38,7 +38,7 @@ function EthernetConfigSection({
               <Tooltip id="eth-help-tooltip">
                 {currentEthConn === 'server' && 'DHCP server running when no external router is connected.'}
                 {currentEthConn === 'client' && 'Automatically obtains an IP address via DHCP when connected to an external router or network.'}
-                {currentEthConn === 'static' && 'Assign secondary static IP addresses to eth0 in the background (e.g. for cameras or payload devices).'}
+                {currentEthConn === 'static' && 'Assign secondary static IP addresses to ethernet interface in the background (e.g. for cameras or payload devices).'}
               </Tooltip>
             }
           >
