@@ -159,7 +159,11 @@ class NetworkConfig extends basePage {
 
   handleActivateEthernet = (profileName) => {
     const profile = this.state.netConnection.find(con => con.labelPre === profileName);
-    const conName = profile ? profile.value : profileName;
+    if (!profile || !profile.value) {
+      this.setState({ error: `Connection profile ${profileName} not found` });
+      return;
+    }
+    const conName = profile.value;
 
     this.setState({ waiting: true }, () => {
       requestApi('/api/networkactivate', {
@@ -1255,27 +1259,62 @@ class NetworkConfig extends basePage {
         </div>
 
         {isEthernet ? (
-          <EthernetConfigSection
-            currentEthConn={currentEthConn}
-            isClientActive={isClientActive}
-            isServerActive={isServerActive}
-            onActivateProfile={this.handleActivateEthernet}
-            waiting={this.state.waiting}
-            ethServerSettings={this.state.ethServerSettings}
-            ethServerSaving={this.state.ethServerSaving}
-            onServerSettingsChange={(field, val) => this.setState(prev => ({
-              ethServerSettings: { ...prev.ethServerSettings, [field]: val }
-            }))}
-            onSaveServer={this.handleSaveEthernetServer}
-            ethAliases={this.state.ethAliases}
-            newAliasIp={this.state.newAliasIp}
-            newAliasSubnet={this.state.newAliasSubnet}
-            ethAliasesSaving={this.state.ethAliasesSaving}
-            onNewAliasIpChange={(val) => this.setState({ newAliasIp: val })}
-            onNewAliasSubnetChange={(val) => this.setState({ newAliasSubnet: val })}
-            onAddAlias={this.handleAddAlias}
-            onPromptDeleteAlias={this.promptDeleteAlias}
-          />
+          <>
+            <div className="form-group row" style={{ marginBottom: '15px' }}>
+              <label className="col-sm-4 col-form-label">Actions</label>
+              <div className="col-sm-8 d-flex flex-wrap gap-2">
+                {currentEthConn === 'client' && !isClientActive && (
+                  <Button
+                    size="sm"
+                    variant="success"
+                    onClick={() => this.handleActivateEthernet('Ethernet-Client')}
+                    disabled={this.state.waiting}
+                    className="activateConnection"
+                  >
+                    {this.state.waiting ? 'Activating...' : 'Activate'}
+                  </Button>
+                )}
+                {currentEthConn === 'server' && !isServerActive && (
+                  <Button
+                    size="sm"
+                    variant="success"
+                    onClick={() => this.handleActivateEthernet('Ethernet-Server')}
+                    disabled={this.state.waiting}
+                    className="activateConnection"
+                  >
+                    {this.state.waiting ? 'Activating...' : 'Activate'}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline-secondary"
+                  onClick={this.refreshAll}
+                  className="refreshConnection ms-auto"
+                >
+                  Refresh
+                </Button>
+              </div>
+            </div>
+
+            <EthernetConfigSection
+              currentEthConn={currentEthConn}
+              waiting={this.state.waiting}
+              ethServerSettings={this.state.ethServerSettings}
+              ethServerSaving={this.state.ethServerSaving}
+              onServerSettingsChange={(field, val) => this.setState(prev => ({
+                ethServerSettings: { ...prev.ethServerSettings, [field]: val }
+              }))}
+              onSaveServer={this.handleSaveEthernetServer}
+              ethAliases={this.state.ethAliases}
+              newAliasIp={this.state.newAliasIp}
+              newAliasSubnet={this.state.newAliasSubnet}
+              ethAliasesSaving={this.state.ethAliasesSaving}
+              onNewAliasIpChange={(val) => this.setState({ newAliasIp: val })}
+              onNewAliasSubnetChange={(val) => this.setState({ newAliasSubnet: val })}
+              onAddAlias={this.handleAddAlias}
+              onPromptDeleteAlias={this.promptDeleteAlias}
+            />
+          </>
         ) : (
           <div>
             {selectedDevice && selectedDevice.type === 'wifi' && (
