@@ -4,43 +4,30 @@ const fs = require('fs')
 const settings = require('settings-store')
 const { toSubnet } = require('./ipv4Subnet')
 const wifiWatchdogState = require('./wifiWatchdogState')
+const { parseIwChannels } = require('./networkArgs')
 
 const execFileAsync = util.promisify(execFile)
+
+// Hardware channel list does not change at runtime
+let cachedWifiChannels = null
+async function getWifiChannels () {
+  if (!cachedWifiChannels) {
+    let channels = []
+    try {
+      const { stdout } = await execFileAsync('iw', ['list'])
+      channels = parseIwChannels(stdout)
+    } catch (err) {
+      console.error('Cannot read Wi-Fi channels: ' + err.message)
+    }
+    cachedWifiChannels = [{ value: 0, freq: 0, label: 'auto', band: 0 }, ...channels]
+  }
+  return cachedWifiChannels
+}
 
 async function getAdapters (callback) {
   try {
     const { stdout } = await execFileAsync('nmcli', ['-t', '-f', 'device,type,state', 'dev'])
     const netStatusList = []
-
-    let cachedWifiChannels = null
-    const getWifiChannels = async () => {
-      if (cachedWifiChannels) return cachedWifiChannels
-      const freqList = [{ value: 0, freq: 0, label: 'auto', band: 0 }]
-      try {
-        const { stdout: iwOut } = await execFileAsync('iw', ['list'])
-        const allFreqs = iwOut.split('\n')
-        for (const line of allFreqs) {
-          if (line.includes('MHz') && line.includes('[')) {
-            const parts = line.trim().split(/\s+/)
-            if (parts.length >= 4 && parts[1] === '*' && parts[3] === 'MHz') {
-              const freq = parts[2]
-              const chStr = parts[4].replace('[', '').replace(']', '')
-              const ch = parseInt(chStr, 10)
-              if (!isNaN(ch)) {
-                freqList.push({
-                  value: ch,
-                  freq: freq,
-                  label: `${ch} (${freq} MHz)`,
-                  band: (parseFloat(freq) < 3000) ? 'bg' : 'a'
-                })
-              }
-            }
-          }
-        }
-      } catch (_) {}
-      cachedWifiChannels = freqList
-      return freqList
-    }
 
     const lines = stdout.split('\n').filter(Boolean)
     for (const item of lines) {
