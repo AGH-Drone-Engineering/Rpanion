@@ -339,6 +339,23 @@ describe('Video Functions', function () {
     assert.equal(vManager.deviceStream, procB, "The current device stream must be unaffected")
   })
 
+  it('#setupStreamEventsClearsHeartbeatIntervalOnProcessClose()', function () {
+    settings.clear()
+    const vManager = new VideoStream(settings)
+
+    const proc = new EventEmitter()
+    proc.stdout = new EventEmitter()
+    proc.stderr = new EventEmitter()
+    proc.kill = () => {}
+
+    vManager.deviceStream = proc
+    vManager.intervalObj = setInterval(() => {}, 1000)
+    vManager.setupStreamEvents('Mode A', () => {})
+    proc.emit('close', 1)
+
+    assert.equal(vManager.intervalObj, null)
+  })
+
   it('#ensureDefaultSettingsForModeUsesFirstDeviceCapWhenUnconfigured()', function () {
     settings.clear()
     const vManager = new VideoStream(settings)

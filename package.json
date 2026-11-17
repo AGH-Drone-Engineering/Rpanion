@@ -53,9 +53,6 @@
     "startbootstrap-simple-sidebar": "6.0.6",
     "systeminformation": "5.33.19"
   },
-  "bin": {
-    "coveralls": "./bin/coveralls.js"
-  },
   "scripts": {
     "start": "vite",
     "build": "vite build",

@@ -902,6 +902,10 @@ class videoStream {
       // new mode's state (see comment at the top of this method).
       if (this.deviceStream === proc) {
         this.active = false;
+        if (this.intervalObj) {
+          clearInterval(this.intervalObj);
+          this.intervalObj = null;
+        }
         // Clear the video recording flag
         if (this.cameraMode === 'video' && this.videoRecordSettings) {
           this.setRecordingFlag(false);

@@ -51,32 +51,7 @@ class mavManager {
     this.RinudpIP = null
     this.inStream = new PassThrough()
 
-    this.udpStream.on('message', (msg, rinfo) => {
-      // calculate bytes/sec rate (once per 2 sec) and do DS requests
-      if ((this.statusBytesPerSec.lastTime + 2000) < Date.now().valueOf()) {
-        this.statusBytesPerSec.avgBytesSec = Math.round(1000 * this.statusBytesPerSec.bytes / (Date.now().valueOf() - this.statusBytesPerSec.lastTime))
-        this.statusBytesPerSec.bytes = 0
-        this.statusBytesPerSec.lastTime = Date.now().valueOf()
-
-        if (this.enableDSRequest && this.targetSystem != null && this.targetComponent != null) {
-          this.sendDSRequest()
-        }
-      } else {
-        this.statusBytesPerSec.bytes += msg.length
-      }
-
-      // lock onto server port
-      if (this.RinudpPort === null || this.RinudpIP === null) {
-        this.RinudpPort = rinfo.port
-        this.RinudpIP = rinfo.address
-        console.log(this.RinudpPort)
-        this.eventEmitter.emit('linkready', true)
-      }
-
-      this.inStream.write(msg)
-    })
-
-    this.udpStream.bind(inudpPort, inudpIP)
+    this._bindUdp()
 
     this.mav = this.inStream.pipe(new MavLinkPacketSplitter()).pipe(new MavLinkPacketParser())
 
@@ -190,6 +165,34 @@ class mavManager {
     }
   }
 
+  _bindUdp () {
+    this.udpStream.on('message', (msg, rinfo) => {
+      // calculate bytes/sec rate (once per 2 sec) and do DS requests
+      if ((this.statusBytesPerSec.lastTime + 2000) < Date.now().valueOf()) {
+        this.statusBytesPerSec.avgBytesSec = Math.round(1000 * this.statusBytesPerSec.bytes / (Date.now().valueOf() - this.statusBytesPerSec.lastTime))
+        this.statusBytesPerSec.bytes = 0
+        this.statusBytesPerSec.lastTime = Date.now().valueOf()
+
+        if (this.enableDSRequest && this.targetSystem != null && this.targetComponent != null) {
+          this.sendDSRequest()
+        }
+      } else {
+        this.statusBytesPerSec.bytes += msg.length
+      }
+
+      // lock onto server port
+      if (this.RinudpPort === null || this.RinudpIP === null) {
+        this.RinudpPort = rinfo.port
+        this.RinudpIP = rinfo.address
+        this.eventEmitter.emit('linkready', true)
+      }
+
+      this.inStream.write(msg)
+    })
+
+    this.udpStream.bind(this.inudpPort, this.inudpIP)
+  }
+
   restart () {
     // reset remote UDP stream
     this.close()
@@ -201,29 +204,7 @@ class mavManager {
     this.udpStream = udp.createSocket('udp4')
     this.statusBytesPerSec = { avgBytesSec: 0, bytes: 0, lastTime: Date.now().valueOf() }
 
-    this.udpStream.on('message', (msg, rinfo) => {
-      // lock onto server port
-      if (this.RinudpPort === null || this.RinudpIP === null) {
-        this.RinudpPort = rinfo.port
-        this.RinudpIP = rinfo.address
-      } else {
-        // calculate bytes/sec rate (once per 2 sec) and do DS requests
-        if ((this.statusBytesPerSec.lastTime + 2000) < Date.now().valueOf()) {
-          this.statusBytesPerSec.avgBytesSec = Math.round(1000 * this.statusBytesPerSec.bytes / (Date.now().valueOf() - this.statusBytesPerSec.lastTime))
-          this.statusBytesPerSec.bytes = 0
-          this.statusBytesPerSec.lastTime = Date.now().valueOf()
-
-          if (this.enableDSRequest && this.targetSystem != null && this.targetComponent != null) {
-            this.sendDSRequest()
-          }
-        } else {
-          this.statusBytesPerSec.bytes += msg.length
-        }
-        this.inStream.write(msg)
-      }
-    })
-
-    this.udpStream.bind(this.inudpPort, this.inudpIP)
+    this._bindUdp()
   }
 
   sendData (msg, component) {

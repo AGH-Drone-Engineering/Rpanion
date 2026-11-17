@@ -113,29 +113,11 @@ async function gracefulShutdown(signal, exitCode = 0) {
   }, SHUTDOWN_TIMEOUT)
   
   try {
-    // Stop accepting new connections
-    if (http && http.listening) {
-      console.log('Closing HTTP server...')
-      console.log(`Waiting for ${activeConnections.size} active connections to finish...`)
-      
-      await new Promise((resolve, reject) => {
-        http.close((err) => {
-          if (err) {
-            console.error('Error closing HTTP server:', err)
-            reject(err)
-          } else {
-            resolve()
-          }
-        })
-      })
-    }
-    
-    // Stop Socket.IO connections
-    if (io) {
-      console.log('Closing Socket.IO connections...')
-      io.close()
-      console.log('Socket.IO closed')
-    }
+    // io.close() disconnects Socket.IO clients and also closes the http server.
+    // Closing http first hangs until SHUTDOWN_TIMEOUT on open websockets.
+    console.log('Closing Socket.IO and HTTP server...')
+    await io.close()
+    http.closeAllConnections()
     
     // Clear intervals
     if (FCStatusLoop) {
@@ -149,8 +131,15 @@ async function gracefulShutdown(signal, exitCode = 0) {
 
     // Stop camera processes cleanly
     if (vManager) {
-      vManager.stopCamera(save=false);
+      vManager.stopCamera(false);
       console.log('Camera processes stopped');
+    }
+
+    fcManager.stopDFLogger()
+    await new Promise((resolve) => fcManager.closeLink(resolve))
+    if (ntripClient.client) {
+      ntripClient.client.close()
+      ntripClient.client = null
     }
 
     pppConnectionManager.quitting()
@@ -395,18 +384,6 @@ fcManager.eventEmitter.on('gotMessage', (packet, data) => {
   } catch (err) {
     console.log('Error processing MAVLink message in listener:', err);
   }
-})
-
-fcManager.eventEmitter.on('newLink', () => {
-})
-
-fcManager.eventEmitter.on('stopLink', () => {
-})
-
-fcManager.eventEmitter.on('armed', () => {
-})
-
-fcManager.eventEmitter.on('disarmed', () => {
 })
 
 let FCStatusLoop = null
@@ -704,7 +681,7 @@ app.post('/api/vpnwireguardprofileadd', authenticateToken, (req, res) => {
   if (!req.files || Object.keys(req.files).length === 0 || req.files.wgprofile.truncated) {
     console.log("Couldn't upload")
     res.setHeader('Content-Type', 'application/json')
-    res.send(JSON.stringify({ error: 'Bad wireguard profile' }))
+    return res.send(JSON.stringify({ error: 'Bad wireguard profile' }))
   }
 
   VPNManager.addWireguardProfile(req.files.wgprofile.name, req.files.wgprofile.tempFilePath, (err) => {
@@ -1184,7 +1161,14 @@ io.engine.use((req, res, next) => {
   }
 })
 
-io.on('connection', function () {
+io.on('connection', function (socket) {
+  socket.on('disconnect', () => {
+    if (io.engine.clientsCount === 0 && FCStatusLoop !== null) {
+      clearInterval(FCStatusLoop)
+      FCStatusLoop = null
+    }
+  })
+
   // only set interval if not already set
   if (FCStatusLoop !== null) {
     return
@@ -1320,7 +1304,7 @@ app.post('/api/camera/start', authenticateToken, [
   } else if (mode === 'video') {
     vManager.videoRecordSettings = {
       device: req.body.videoDevice,
-      isRecording: req.body.isRecording === false || req.body.isRecording === 'false',
+      isRecording: false,
       height: parseInt(req.body.height, 10),
       width: parseInt(req.body.width, 10),
       format: req.body.format,
@@ -1378,32 +1362,6 @@ if (process.env.NODE_ENV !== 'development')
     res.sendFile(path.join(__dirname, '..', '/build/index.html'))
   })
 }
-
-// Track active connections for graceful shutdown
-const activeConnections = new Set()
-
-// Add connection tracking middleware
-app.use((req, res, next) => {
-  // Return 503 if shutting down
-  if (isShuttingDown) {
-    res.set('Connection', 'close')
-    return res.status(503).json({ error: 'Server is shutting down' })
-  }
-  
-  // Track this connection
-  activeConnections.add(res)
-  
-  // Remove when done
-  res.on('finish', () => {
-    activeConnections.delete(res)
-  })
-  
-  res.on('close', () => {
-    activeConnections.delete(res)
-  })
-  
-  next()
-})
 
 module.exports = app;
 
