@@ -44,6 +44,10 @@ const ResourceGuard = require('./resourceGuard.js')
 const createNetworkRouter = require('./routes/network.js')
 const createSystemRouter = require('./routes/system.js')
 const { createSystemIdentity } = require('./systemIdentity.js')
+const createTerminalRouter = require('./routes/terminal.js')
+const { createTerminalSystem } = require('./terminalSystem.js')
+const { createTerminal } = require('./terminal.js')
+const { createOomWatch } = require('./memoryWatch.js')
 const limiter = RateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
   max: 120,
@@ -144,6 +148,8 @@ async function gracefulShutdown(signal, exitCode = 0) {
       ntripClient.client = null
     }
 
+    terminal.closeAll()
+    oomWatch.stop()
     pppConnectionManager.quitting()
     cloud.quitting()
     logConversion.quitting()
@@ -1173,6 +1179,22 @@ io.engine.use((req, res, next) => {
   }
 })
 
+const terminalSystem = createTerminalSystem()
+const terminal = createTerminal({
+  io,
+  system: terminalSystem,
+  isAuthEnabled: () => !(process.env.NODE_ENV === 'development' || process.env.DISABLE_AUTH === '1')
+})
+
+// An OOM kill in the session slice (main.py started from the terminal) is reported to the GCS
+const oomWatch = createOomWatch({
+  readOomKills: () => terminalSystem.readOomKills(),
+  onKill: (delta) => {
+    console.log(`OOM kill in user-1000.slice: ${delta} process(es)`)
+    fcManager.sendStatusText(common.MavSeverity.WARNING, 'Companion OOM: process killed')
+  }
+})
+
 io.on('connection', function (socket) {
   socket.on('subscribeSystemStats', () => socket.join('systemstats'))
   socket.on('unsubscribeSystemStats', () => socket.leave('systemstats'))
@@ -1367,13 +1389,14 @@ app.post('/api/camera/stop', authenticateToken, (req, res) => {
 
 app.use(createNetworkRouter({ networkManager, authenticateToken }))
 app.use(createSystemRouter({ systemIdentity: createSystemIdentity(), authenticateToken }))
+app.use(createTerminalRouter({ terminalSystem, authenticateToken }))
 
 // Pass GUI requests to the React app only in production mode
 if (process.env.NODE_ENV !== 'development')
 {
   app.get(['/', '/controller', '/about', '/network',
           '/video', '/vpn', '/ntrip', '/cloud', '/flightlogs',
-          '/apclients', '/adhoc', '/logoutconfirm', '/users', '/device', '/ppp'], (req, res) => {
+          '/apclients', '/adhoc', '/logoutconfirm', '/users', '/device', '/ppp', '/terminal'], (req, res) => {
     res.sendFile(path.join(__dirname, '..', '/build/index.html'))
   })
 }
@@ -1387,6 +1410,7 @@ if (require.main === module) {
     console.log(`Server running on port ${port}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
     console.log('Press Ctrl+C to stop');
+    oomWatch.start()
   });
 }
 

@@ -55,7 +55,10 @@ rpanion ALL=(ALL) NOPASSWD: \
   /usr/sbin/ip addr add * dev *, \
   /usr/sbin/ip addr del * dev *, \
   /usr/local/sbin/rpanion-system hostname *, \
-  /usr/local/sbin/rpanion-system sshpassword
+  /usr/local/sbin/rpanion-system sshpassword, \
+  /usr/bin/systemctl start rpanion-terminal, \
+  /usr/bin/systemctl stop --no-block rpanion-terminal
+rpanion ALL=(#1000) NOPASSWD: /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock new-session -A -s main
 EOF
 
         if visudo -cf "$SUDOERS_TMP" >/dev/null; then

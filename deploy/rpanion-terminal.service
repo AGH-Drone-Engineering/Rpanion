@@ -1,0 +1,21 @@
+[Unit]
+Description=Rpanion terminal session
+Documentation=https://www.docs.rpanion.com/software/rpanion-server
+
+[Service]
+Type=simple
+User=1000
+Slice=user-1000.slice
+# Default OOMPolicy=stop would end the whole session when the kernel kills main.py
+OOMPolicy=continue
+# Locale as in an SSH session (pam_env reads the same file)
+EnvironmentFile=-/etc/default/locale
+WorkingDirectory=~
+RuntimeDirectory=rpanion-terminal
+ExecStart=/usr/bin/tmux -D -S /run/rpanion-terminal/tmux.sock -f /usr/local/lib/rpanion-terminal/tmux.conf
+# Clients attach right after "systemctl start" returns
+ExecStartPost=/bin/sh -c 'for i in $(seq 50); do [ -S /run/rpanion-terminal/tmux.sock ] && exit 0; sleep 0.1; done; exit 1'
+ExecStop=/usr/local/lib/rpanion-terminal/stop.sh
+TimeoutStopSec=15
+# Interactive shells ignore SIGTERM and exit on SIGHUP
+SendSIGHUP=yes

@@ -165,6 +165,33 @@ describe('MAVLink Functions', function () {
     })
   })
 
+  it('#statusTextSend()', function (done) {
+    const m = new mavManager(2, '127.0.0.1', 15300)
+    const udpStream = udp.createSocket('udp4')
+
+    m.eventEmitter.on('linkready', () => {
+      m.sendStatusText(4, 'OOM kill: main.py')
+    })
+
+    udpStream.on('message', (msg) => {
+      assert.equal(msg[0], 0xfd) // MAVLink v2 header
+      assert.equal(msg[7], 0xfd) // Message ID for STATUSTEXT
+      assert.equal(msg[8], 0x00)
+      assert.equal(msg[10], 4) // severity WARNING
+      assert.equal(msg.subarray(11, 11 + 17).toString('ascii'), 'OOM kill: main.py')
+
+      m.close()
+      udpStream.close()
+      done()
+    })
+
+    udpStream.send(Buffer.from([0xfd, 0x06]), 15300, '127.0.0.1', (error) => {
+      if (error) {
+        console.error(error)
+      }
+    })
+  })
+
   it('#onboardComputerStatusSend()', function (done) {
     const m = new mavManager(2, '127.0.0.1', 15200)
     const udpStream = udp.createSocket('udp4')

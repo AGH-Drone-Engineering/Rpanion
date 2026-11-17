@@ -72,7 +72,7 @@ sudo apt install -y gstreamer1.0-plugins-good libgstrtspserver-1.0-0 gir1.2-gst-
 sudo apt install -y gstreamer1.0-plugins-base-apps gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad
 sudo apt install -y network-manager python3 python3-gst-1.0 python3-pip dnsmasq git jq iw avahi-daemon
 sudo apt install -y python3-lxml python3-numpy gpsbabel zip python3-dev gstreamer1.0-x ppp python3-venv
-sudo apt install -y python3-opencv v4l-utils python3-setuptools
+sudo apt install -y python3-opencv v4l-utils python3-setuptools tmux
 ```
 
 If running on RasPiOS, install the libcamera drivers:
@@ -164,6 +164,9 @@ the user login and authentication checks.
 
 At this point, the website will be active at ``http://<ip of device>:3000``
 
+The terminal is disabled in this mode because it needs the login checks. ``node-pty`` has no prebuilt binary for
+Linux and is compiled by ``npm install``, which needs ``g++``, ``make`` and ``python3`` (``build-essential``).
+
 ## Packaging
 
 To produce a deb package, run ``npm run build && npm run package``.
@@ -204,6 +207,56 @@ The settings are applied by ``/usr/local/sbin/rpanion-system``, installed by the
 generates missing SSH host keys; ``deploy/create_image.sh`` removes the host keys from the image only when
 the drop-in is present. If the Web GUI is not reachable, the name and password can be changed
 on the SD card before the first boot by editing ``user-data`` on the boot partition (``hostname:`` and ``user:``).
+
+## Terminal
+
+The "Terminal" page opens a shell of user ``pi`` (UID 1000, no password) in the browser, for example to
+run ``main.py`` for image processing and mission control. The shell runs in a tmux session served by
+``rpanion-terminal.service``. The session outlives the browser tab, a lost connection and a restart of
+Rpanion-server; reconnecting attaches to the running session. It is started with "Start session" and ended
+with "Stop session" (or ``sudo systemctl stop rpanion-terminal``). The terminal needs the access control of the
+Web GUI and is refused when ``DISABLE_AUTH=1``.
+
+The same session can be used over SSH: ``tmux -S /run/rpanion-terminal/tmux.sock attach``. If tmux is updated with
+apt while a session runs, a new client may not connect to the old server; "Stop session" fixes that.
+
+Keys as in Linux terminal emulators: Ctrl+C sends SIGINT, Ctrl+Shift+C copies the selection, Ctrl+Shift+V pastes
+(Ctrl+Insert and Shift+Insert also work). With the tmux mouse mode, dragging selects inside tmux; hold Shift while
+dragging to select for the browser clipboard.
+
+### Out of memory
+
+There is no memory limit: programs of user ``pi`` (this terminal and SSH sessions, ``user-1000.slice``) can use
+all RAM. When memory runs out, the kernel OOM killer stops the process with the highest score, normally the one
+using the most memory (``main.py``). Rpanion-server and its child processes (mavlink-router, video) have
+``OOMScoreAdjust=-900`` and are not chosen; the terminal session keeps running (``OOMPolicy=continue``). Each kill
+is counted on the Terminal page and sent to the ground station as a STATUSTEXT message.
+
+Processes of user ``pi`` do not use swap (``MemorySwapMax=0`` on ``user-1000.slice``), so a leak reaches the OOM
+killer instead of first filling zram. Before the kill the kernel reclaims cache from all processes, which can slow
+the whole system for some seconds; ``MemoryLow=512M`` on ``rpanion-server.service`` (and on ``system.slice``, which
+it requires) keeps the memory of Rpanion-server in RAM during that phase. A leak spread over many small processes
+is handled one process at a time.
+
+These settings are systemd drop-ins installed by ``deploy/configure_system.sh``. ``MemorySwapMax``, ``MemoryLow``
+and the memory display on the page need the kernel memory cgroup controller. Jetson and plain Debian enable it by
+default. The Raspberry Pi firmware passes ``cgroup_disable=memory``; ``deploy/configure_system.sh`` appends
+``cgroup_enable=memory`` to ``/boot/firmware/cmdline.txt`` (reboot required). Set ``RPANION_SKIP_CMDLINE=1`` to skip
+that edit. Whether Jetson memory allocated through nvmap/CUDA is counted is not verified.
+
+CPU is not limited. The software video encoder of Rpanion-server runs with ``nice -n 10``, so mavlink-router is served first.
+
+The terminal files and units are installed by ``deploy/configure_system.sh`` (disk images); the .deb package
+installs the sudoers rules and the helper only.
+
+### Recommendations for programs run from the terminal
+
+- Add a watchdog on the flight controller (for example a Lua script that checks a heartbeat of ``main.py``). The
+  ``GUID_TIMEOUT`` parameter does not cover position targets.
+- Log to a file, not only to stdout: the terminal output is not stored.
+- Handle SIGHUP like SIGTERM. Stopping the session sends SIGTERM to all processes of the session (including ``&``,
+  ``nohup`` and ``setsid`` ones) and waits up to 13 s for them to exit before the rest is killed; use that time to
+  clean up.
 
 ## Tests
 
