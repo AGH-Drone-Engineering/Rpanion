@@ -1,5 +1,5 @@
 const assert = require('assert')
-const { parseIPv4, netmaskToPrefix, toSubnet, subnetContains } = require('./ipv4Subnet')
+const { parseIPv4, netmaskToPrefix, toSubnet, subnetContains, prefixToNetmask, subnetsOverlap } = require('./ipv4Subnet')
 
 describe('ipv4Subnet', function () {
   it('parses dotted IPv4 to unsigned int', function () {
@@ -35,24 +35,22 @@ describe('ipv4Subnet', function () {
     assert.strictEqual(subnetContains(toSubnet('192.168.144.20/32'), '192.168.144.14'), false)
     assert.strictEqual(subnetContains(toSubnet('0.0.0.0/0'), '8.8.8.8'), true)
   })
-})
 
-describe('prefixToNetmask', function () {
-  const { prefixToNetmask } = require('./ipv4Subnet')
-  it('converts prefix length to dotted netmask', function () {
-    assert.strictEqual(prefixToNetmask(24), '255.255.255.0')
-    assert.strictEqual(prefixToNetmask('16'), '255.255.0.0')
-    assert.strictEqual(prefixToNetmask(32), '255.255.255.255')
-    assert.strictEqual(prefixToNetmask(0), '0.0.0.0')
-    assert.strictEqual(prefixToNetmask(33), null)
+  describe('prefixToNetmask', function () {
+    it('converts prefix length to dotted netmask', function () {
+      assert.strictEqual(prefixToNetmask(24), '255.255.255.0')
+      assert.strictEqual(prefixToNetmask('16'), '255.255.0.0')
+      assert.strictEqual(prefixToNetmask(32), '255.255.255.255')
+      assert.strictEqual(prefixToNetmask(0), '0.0.0.0')
+      assert.strictEqual(prefixToNetmask(33), null)
+    })
   })
-})
 
-describe('subnetsOverlap', function () {
-  const { subnetsOverlap } = require('./ipv4Subnet')
-  it('detects containment in either direction', function () {
-    assert.strictEqual(subnetsOverlap({ ip: '10.28.237.50', prefix: 24 }, { ip: '10.28.237.122', prefix: 24 }), true)
-    assert.strictEqual(subnetsOverlap({ ip: '10.28.0.1', prefix: 16 }, { ip: '10.28.237.122', prefix: 24 }), true)
-    assert.strictEqual(subnetsOverlap({ ip: '10.28.238.1', prefix: 24 }, { ip: '10.28.237.122', prefix: 24 }), false)
+  describe('subnetsOverlap', function () {
+    it('detects containment in either direction', function () {
+      assert.strictEqual(subnetsOverlap({ ip: '10.28.237.50', prefix: 24 }, { ip: '10.28.237.122', prefix: 24 }), true)
+      assert.strictEqual(subnetsOverlap({ ip: '10.28.0.1', prefix: 16 }, { ip: '10.28.237.122', prefix: 24 }), true)
+      assert.strictEqual(subnetsOverlap({ ip: '10.28.238.1', prefix: 24 }, { ip: '10.28.237.122', prefix: 24 }), false)
+    })
   })
 })

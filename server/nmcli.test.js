@@ -1,5 +1,6 @@
 const assert = require('assert')
 const { parseTerseRow, parseMultiline } = require('./nmcli')
+const nmcli = require('./nmcli')
 
 describe('nmcli parsers', function () {
   it('parseTerseRow splits on unescaped colons and unescapes values', function () {
@@ -23,17 +24,15 @@ describe('nmcli parsers', function () {
       { 'connection.id': 'My:Net', 'ipv4.method': 'auto', 'ipv4.addresses': '' }
     ])
   })
-})
 
-describe('nmcli.run', function () {
-  const nmcli = require('./nmcli')
+  describe('nmcli.run', function () {
+    it('resolves stdout of a successful call', async function () {
+      const out = await nmcli.run(['--version'])
+      assert.ok(/nmcli/.test(out))
+    })
 
-  it('resolves stdout of a successful call', async function () {
-    const out = await nmcli.run(['--version'])
-    assert.ok(/nmcli/.test(out))
-  })
-
-  it('rejects with stderr text on non-zero exit', async function () {
-    await assert.rejects(nmcli.run(['connection', 'show', 'rpanion-no-such-profile']), /no such connection profile/)
+    it('rejects with stderr text on non-zero exit', async function () {
+      await assert.rejects(nmcli.run(['connection', 'show', 'rpanion-no-such-profile']), /no such connection profile/)
+    })
   })
 })

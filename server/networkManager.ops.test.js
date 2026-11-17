@@ -2,6 +2,9 @@ const assert = require('assert')
 const sinon = require('sinon')
 const nmcli = require('./nmcli')
 const networkManager = require('./networkManager')
+const fs = require('fs')
+const path = require('path')
+const ipCommand = require('./ipCommand')
 
 // Routes nmcli.run calls to handlers keyed by a substring of the joined args
 function fakeNmcli (handlers) {
@@ -20,8 +23,6 @@ function fakeNmcli (handlers) {
 const UUID = '11111111-2222-3333-4444-555555555555'
 
 describe('networkManager operations', function () {
-  const fs = require('fs')
-  const path = require('path')
   let stateDir
 
   beforeEach(function () {
@@ -217,7 +218,6 @@ describe('networkManager operations', function () {
   })
 
   describe('alias safety', function () {
-    const ipCommand = require('./ipCommand')
     const IP_ADDRS = '2: eth0    inet 10.0.3.1/24 brd 10.0.3.255 scope global eth0\n' +
       '3: wlan0    inet 10.28.237.122/24 brd 10.28.237.255 scope global dynamic wlan0\n'
 

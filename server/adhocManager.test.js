@@ -1,4 +1,4 @@
-/* eslint-disable no-undef */
+ 
 const assert = require('assert')
 const settings = require('settings-store')
 const AdhocManager = require('./adhocManager')
