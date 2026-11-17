@@ -29,4 +29,9 @@ else
 fi
 rm -f "$SUDOERS_TMP"
 
+## Generate missing SSH host keys on boot; images are created without them
+sudo install -o root -g root -m 755 -d /etc/systemd/system/ssh.service.d
+sudo install -o root -g root -m 644 "$SCRIPT_DIR/ssh-hostkeys.conf" /etc/systemd/system/ssh.service.d/rpanion-hostkeys.conf
+sudo systemctl daemon-reload
+
 echo "Device settings helper configured."

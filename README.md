@@ -199,7 +199,9 @@ Give each drone on the same network its own name. Two drones that both still use
 by mDNS to ``rpanion.local`` and ``rpanion-2.local`` in start-up order. Configure new drones one at a time.
 
 The settings are applied by ``/usr/local/sbin/rpanion-system``, installed by the .deb package and by
-``deploy/configure_system.sh``. If the Web GUI is not reachable, the name and password can be changed
+``deploy/configure_system.sh``. ``deploy/configure_system.sh`` also installs an ``ssh.service`` drop-in that
+generates missing SSH host keys; ``deploy/create_image.sh`` removes the host keys from the image only when
+the drop-in is present. If the Web GUI is not reachable, the name and password can be changed
 on the SD card before the first boot by editing ``user-data`` on the boot partition (``hostname:`` and ``user:``).
 
 ## Tests
