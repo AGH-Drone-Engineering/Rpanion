@@ -1,5 +1,5 @@
 /*
- * Device name (hostname, mDNS name and WiFiAP SSID) and SSH password.
+ * Device name (hostname, mDNS name and optionally the WiFiAP SSID) and SSH password.
  * Changes go through the root helper /usr/local/sbin/rpanion-system, the
  * only command allowed through sudoers for this. Validation rules match
  * the helper's valid_device_name().
@@ -9,7 +9,7 @@ const os = require('os')
 
 const HELPER = '/usr/local/sbin/rpanion-system'
 const SSH_USER = 'pi'
-// The device name is also the AP SSID, which is limited to 32 bytes
+// The device name can also become the AP SSID, which is limited to 32 bytes
 const DEVICE_NAME_RE = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/
 const DEVICE_NAME_RULES = 'Device name must be 1-32 characters: lowercase letters, digits and hyphens, ' +
   'not starting or ending with a hyphen, not only digits, not "localhost"'
@@ -47,11 +47,11 @@ function createSystemIdentity ({ execFile = childProcess.execFile, getHostname =
       return { hostname: getHostname(), sshUser: SSH_USER }
     },
 
-    async setHostname (name) {
+    async setHostname (name, { updateApSsid = false } = {}) {
       if (!isValidDeviceName(name)) {
         throw invalid(DEVICE_NAME_RULES)
       }
-      await runHelper(['hostname', name])
+      await runHelper(updateApSsid ? ['hostname', name, '--ap'] : ['hostname', name])
     },
 
     async setSshPassword (password) {

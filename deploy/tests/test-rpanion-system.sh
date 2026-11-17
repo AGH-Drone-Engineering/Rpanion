@@ -72,7 +72,7 @@ run() {
 
 # Success with an active AP
 setup rpanion active
-run hostname rpanion-07; check "rename exits 0" "$?" 0
+run hostname rpanion-07 --ap; check "rename exits 0" "$?" 0
 check "hostname set" "$(cat "$STATE/hostname")" rpanion-07
 check "hosts entry updated" "$(grep '^127.0.1.1' "$STATE/hosts")" "127.0.1.1 rpanion-07 rpanion-07"
 check "localhost line kept" "$(grep -c '^127.0.0.1 localhost$' "$STATE/hosts")" 1
@@ -83,25 +83,37 @@ grep -q "on-active=3 /usr/bin/nmcli connection up WiFiAP" "$STATE/systemd-run.lo
 
 # Inactive AP: SSID changed, no re-activation
 setup rpanion inactive
-run hostname drone-2; check "inactive AP: exits 0" "$?" 0
+run hostname drone-2 --ap; check "inactive AP: exits 0" "$?" 0
 check "inactive AP: SSID changed" "$(cat "$STATE/ap_ssid")" drone-2
 [ -f "$STATE/systemd-run.log" ] && fail "inactive AP: no re-activation" || ok "inactive AP: no re-activation"
 
 # No AP profile
 setup rpanion none
-run hostname drone-3; check "no AP: exits 0" "$?" 0
+run hostname drone-3 --ap; check "no AP: exits 0" "$?" 0
 check "no AP: hostname set" "$(cat "$STATE/hostname")" drone-3
 
 # avahi not running: skipped, not an error
 setup rpanion inactive
-AVAHI_ACTIVE=0 run hostname drone-4; check "avahi inactive: exits 0" "$?" 0
+AVAHI_ACTIVE=0 run hostname drone-4 --ap; check "avahi inactive: exits 0" "$?" 0
 [ -f "$STATE/avahi.log" ] && fail "avahi inactive: not restarted" || ok "avahi inactive: not restarted"
+
+# Without --ap the AP profile is not touched
+setup rpanion active
+run hostname drone-5; check "hostname only: exits 0" "$?" 0
+check "hostname only: hostname set" "$(cat "$STATE/hostname")" drone-5
+check "hostname only: SSID kept" "$(cat "$STATE/ap_ssid")" rpanion
+grep -q "WiFiAP" "$STATE/nmcli.log" 2>/dev/null && fail "hostname only: AP profile not read" || ok "hostname only: AP profile not read"
+[ -f "$STATE/systemd-run.log" ] && fail "hostname only: no re-activation" || ok "hostname only: no re-activation"
+
+setup rpanion active
+run hostname drone-6 --bogus; check "unknown option exits 64" "$?" 64
+check "unknown option: hostname kept" "$(cat "$STATE/hostname")" rpanion
 
 # Rollback when each step fails
 for step in HOSTNAMECTL NMCLI_MODIFY AVAHI; do
     setup rpanion active
     export "FAIL_$step=1"
-    run hostname drone-9; rc=$?
+    run hostname drone-9 --ap; rc=$?
     unset "FAIL_$step"
     check "$step failure: exits 1" "$rc" 1
     check "$step failure: hostname restored" "$(cat "$STATE/hostname")" rpanion

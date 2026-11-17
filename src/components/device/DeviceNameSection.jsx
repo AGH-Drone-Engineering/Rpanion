@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import Alert from 'react-bootstrap/Alert';
 import Button from 'react-bootstrap/Button';
 import Form from 'react-bootstrap/Form';
+import Modal from 'react-bootstrap/Modal';
 import { createSystemApi } from '../../api/systemApi.js';
 
 // Same rules as server/systemIdentity.js; the name is also the AP SSID (max 32 bytes)
@@ -22,7 +23,8 @@ function DeviceNameSection({ token }) {
   const [current, setCurrent] = useState('');
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(null);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -37,15 +39,16 @@ function DeviceNameSection({ token }) {
   const normalized = name.trim().toLowerCase();
   const valid = isValidDeviceName(normalized);
 
-  const save = async () => {
+  const save = async (updateApSsid) => {
+    setConfirming(false);
     setSaving(true);
     setError(null);
-    setSaved(false);
+    setSaved(null);
     try {
-      const identity = await api.setHostname(normalized);
+      const identity = await api.setHostname(normalized, updateApSsid);
       setCurrent(identity.hostname);
       setName(identity.hostname);
-      setSaved(true);
+      setSaved({ updateApSsid });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -62,13 +65,13 @@ function DeviceNameSection({ token }) {
             type="text"
             value={name}
             isInvalid={name !== '' && !valid}
-            onChange={(e) => { setName(e.target.value); setSaved(false); }}
+            onChange={(e) => { setName(e.target.value); setSaved(null); }}
           />
           <Button
             size="sm"
             className="btn ms-2"
             disabled={saving || !valid || normalized === current}
-            onClick={save}
+            onClick={() => setConfirming(true)}
           >
             Save
           </Button>
@@ -76,9 +79,22 @@ function DeviceNameSection({ token }) {
       </Form.Group>
       {saved && (
         <Alert variant="success" className="mt-2">
-          Device name and access point SSID: {current}, <a href={mdnsUrl(current)}>{current}.local</a>
+          {saved.updateApSsid ? 'Device name and access point SSID' : 'Device name'}: {current},{' '}
+          <a href={mdnsUrl(current)}>{current}.local</a>
         </Alert>
       )}
+      <Modal show={confirming} onHide={() => setConfirming(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>Change device name</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          Also change the access point SSID to <b>{normalized}</b>? (recommended)
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => save(false)}>No</Button>
+          <Button variant="primary" onClick={() => save(true)}>Yes</Button>
+        </Modal.Footer>
+      </Modal>
       {error && <Alert variant="danger" className="mt-2">{error}</Alert>}
     </div>
   );

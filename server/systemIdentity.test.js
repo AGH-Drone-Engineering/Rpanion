@@ -31,6 +31,15 @@ describe('systemIdentity', function () {
     assert.deepStrictEqual(calls[0].args, ['-n', '/usr/local/sbin/rpanion-system', 'hostname', 'rpanion-07'])
   })
 
+  it('setHostname passes --ap only when the AP SSID is to be changed', async function () {
+    const { execFile, calls } = stubExec()
+    const identity = createSystemIdentity({ execFile })
+    await identity.setHostname('rpanion-07', { updateApSsid: true })
+    await identity.setHostname('rpanion-08', { updateApSsid: false })
+    assert.deepStrictEqual(calls[0].args, ['-n', '/usr/local/sbin/rpanion-system', 'hostname', 'rpanion-07', '--ap'])
+    assert.deepStrictEqual(calls[1].args, ['-n', '/usr/local/sbin/rpanion-system', 'hostname', 'rpanion-08'])
+  })
+
   it('setHostname rejects invalid names with status 422 and does not run the helper', async function () {
     const { execFile, calls } = stubExec()
     const identity = createSystemIdentity({ execFile })

@@ -1,5 +1,5 @@
 /*
- * HTTP routes for device name (hostname and AP SSID) and SSH password. Errors carrying a `status`
+ * HTTP routes for device name (hostname, optionally AP SSID) and SSH password. Errors carrying a `status`
  * (invalid input) keep it; others are 500.
  */
 const express = require('express')
@@ -28,10 +28,12 @@ function createSystemRouter ({ systemIdentity, authenticateToken }) {
   route('get', '/api/system/identity', [], async () => systemIdentity.getIdentity())
 
   route('post', '/api/system/hostname',
-    [check('hostname').isString().trim().toLowerCase().custom(isValidDeviceName).withMessage(DEVICE_NAME_RULES)],
+    [check('hostname').isString().trim().toLowerCase().custom(isValidDeviceName).withMessage(DEVICE_NAME_RULES),
+      check('updateApSsid').optional().isBoolean({ strict: true })],
     async (req) => {
-      await systemIdentity.setHostname(req.body.hostname)
-      return { ...systemIdentity.getIdentity(), infoMessage: 'Device name updated' }
+      const updateApSsid = req.body.updateApSsid === true
+      await systemIdentity.setHostname(req.body.hostname, { updateApSsid })
+      return { ...systemIdentity.getIdentity(), updateApSsid, infoMessage: 'Device name updated' }
     })
 
   route('post', '/api/system/sshpassword',

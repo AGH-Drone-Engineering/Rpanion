@@ -27,11 +27,11 @@ describe('createSystemApi', () => {
 
   test('setHostname posts the name', async () => {
     const fetchMock = mockFetch(200, { hostname: 'rpanion-07', infoMessage: 'Device name updated' })
-    await createSystemApi('tok').setHostname('rpanion-07')
+    await createSystemApi('tok').setHostname('rpanion-07', true)
     const [url, opts] = fetchMock.mock.calls[0]
     expect(url).toBe('/api/system/hostname')
     expect(opts.method).toBe('POST')
-    expect(JSON.parse(opts.body)).toEqual({ hostname: 'rpanion-07' })
+    expect(JSON.parse(opts.body)).toEqual({ hostname: 'rpanion-07', updateApSsid: true })
   })
 
   test('throws the server message on an error status', async () => {

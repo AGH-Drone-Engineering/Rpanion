@@ -173,12 +173,11 @@ describe('networkManager operations', function () {
       assert.ok(calls.includes(`sudo connection up ${UUID}`))
     })
 
-    it('keeps the WiFiAP SSID equal to the hostname', async function () {
+    it('sets the WiFiAP SSID given in the form', async function () {
       const calls = fakeNmcli([['-g connection.id,connection.type', () => 'WiFiAP\n802-11-wireless\n']])
       await networkManager.editConnection(UUID, { ipaddresstype: 'shared', ipaddress: '10.0.2.100', subnet: '255.255.255.0', mode: 'ap', ssid: 'other-name', band: 'bg' })
       const mod = calls.find(c => c.startsWith(`sudo connection mod ${UUID}`))
-      assert.ok(mod.includes(`802-11-wireless.ssid ${require('os').hostname()}`), mod)
-      assert.ok(!mod.includes('other-name'))
+      assert.ok(mod.includes('802-11-wireless.ssid other-name'), mod)
     })
 
     it('leaves the SSID of client Wi-Fi profiles as given', async function () {
@@ -201,12 +200,11 @@ describe('networkManager operations', function () {
       assert.strictEqual(uuid, UUID)
     })
 
-    it('creates WiFiAP with the hostname as SSID', async function () {
+    it('creates WiFiAP with the SSID given in the form', async function () {
       const calls = fakeNmcli([['sudo connection add', () => `Connection 'WiFiAP' (${UUID}) successfully added.\n`]])
       await networkManager.addConnection('WiFiAP', 'wifi', 'wlan0', { ipaddresstype: 'shared', ipaddress: '10.0.2.100', subnet: '255.255.255.0', mode: 'ap', ssid: 'typed-in-form', band: 'bg' })
       const add = calls.find(c => c.startsWith('sudo connection add'))
-      assert.ok(add.includes(`802-11-wireless.ssid ${require('os').hostname()}`), add)
-      assert.ok(!add.includes('typed-in-form'))
+      assert.ok(add.includes('802-11-wireless.ssid typed-in-form'), add)
     })
   })
 

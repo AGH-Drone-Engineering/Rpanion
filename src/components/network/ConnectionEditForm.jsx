@@ -156,9 +156,7 @@ function ConnectionEditForm({ api, connection, device, disabled, reloadSeq, onSa
                 <div className="wifiapconfig">
                   <h3>Wifi Access Point</h3>
                   <FormRow label="SSID Name" htmlFor={`${ID}-ssid`}>
-                    {/* WiFiAP SSID is the device name, set on the Device Settings page */}
-                    <Form.Control id={`${ID}-ssid`} name="ssid" onChange={changeHandler} value={draft.ssid} type="text"
-                      readOnly={connection.role === ROLE.WIFI_AP} />
+                    <Form.Control id={`${ID}-ssid`} name="ssid" onChange={changeHandler} value={draft.ssid} type="text" />
                   </FormRow>
                   <FormRow label="Band" htmlFor={`${ID}-band`}>
                     <Form.Select id={`${ID}-band`} name="band" onChange={changeHandler} value={draft.band}>

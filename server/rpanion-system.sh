@@ -2,7 +2,7 @@
 # Root helper for device settings, run through sudo by server/systemIdentity.js.
 # Installed to /usr/local/sbin/rpanion-system (root-owned) because the
 # rpanion user can write to the application directory.
-#   rpanion-system hostname <name>  device name: hostname, mDNS name and WiFiAP SSID
+#   rpanion-system hostname <name> [--ap]  hostname and mDNS name; --ap also sets the WiFiAP SSID
 #   rpanion-system sshpassword      password on stdin, one line
 # RPANION_* variables exist for tests only; sudo env_reset removes them.
 set -eu
@@ -12,7 +12,7 @@ AP_CON=WiFiAP
 HOSTS_FILE=${RPANION_HOSTS_FILE:-/etc/hosts}
 LOCK_FILE=${RPANION_LOCK_FILE:-/run/rpanion-system.lock}
 
-# The device name is also the AP SSID, which is limited to 32 bytes.
+# The device name can also become the AP SSID, which is limited to 32 bytes.
 # All-digit names are read as IPv4 numbers by inet_aton().
 valid_device_name() {
     [[ "$1" =~ ^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$ ]] &&
@@ -37,10 +37,10 @@ restart_avahi() {
 }
 
 set_device_name() {
-    local name=$1 old_name hosts_backup ap_exists=0 ap_active=0 old_ssid=""
+    local name=$1 update_ap=$2 old_name hosts_backup ap_exists=0 ap_active=0 old_ssid=""
 
     old_name=$(hostname)
-    if nmcli -g connection.id connection show "$AP_CON" >/dev/null 2>&1; then
+    if [ "$update_ap" = 1 ] && nmcli -g connection.id connection show "$AP_CON" >/dev/null 2>&1; then
         ap_exists=1
         old_ssid=$(nmcli -g 802-11-wireless.ssid connection show "$AP_CON")
         if nmcli -g GENERAL.STATE connection show "$AP_CON" 2>/dev/null | grep -q activated; then
@@ -84,11 +84,16 @@ fi
 case "${1:-}" in
     hostname)
         name="${2:-}"
+        case "${3:-}" in
+            "") update_ap=0 ;;
+            --ap) update_ap=1 ;;
+            *) echo "Usage: $0 hostname <name> [--ap]" >&2; exit 64 ;;
+        esac
         if ! valid_device_name "$name"; then
             echo "Invalid device name" >&2
             exit 2
         fi
-        set_device_name "$name"
+        set_device_name "$name" "$update_ap"
         ;;
     sshpassword)
         IFS= read -r password || true
@@ -103,7 +108,7 @@ case "${1:-}" in
         printf '%s:%s\n' "$SSH_USER" "$password" | chpasswd
         ;;
     *)
-        echo "Usage: $0 hostname <name> | sshpassword" >&2
+        echo "Usage: $0 hostname <name> [--ap] | sshpassword" >&2
         exit 64
         ;;
 esac

@@ -4,7 +4,6 @@
  * building and output parsing live in ./networkArgs.
  */
 const { execFile } = require('child_process')
-const os = require('os')
 const util = require('util')
 const fs = require('fs')
 const settings = require('settings-store')
@@ -30,10 +29,11 @@ const DEFAULT_NETMASK = '255.255.255.0'
 // Shorter alias prefixes would add routes covering most of the address space
 const MIN_ALIAS_PREFIX = 8
 const IGNORED_DEVICE_TYPES = ['loopback', 'bridge', 'wifi-p2p']
-// SSIDs broadcast by this device's own access point; the WiFiAP SSID is the
-// hostname (set together by rpanion-system)
-function ownApSsids () {
-  return [os.hostname(), PROFILE.WIFI_AP]
+// SSIDs broadcast by this device's own access point
+async function ownApSsids () {
+  const ssid = (await nmcli.run(['-e', 'no', '-g', '802-11-wireless.ssid', 'connection', 'show', PROFILE.WIFI_AP])
+    .catch(() => '')).trim()
+  return ssid ? [ssid, PROFILE.WIFI_AP] : [PROFILE.WIFI_AP]
 }
 
 // Error caused by the request itself; routes keep its HTTP status
@@ -168,19 +168,20 @@ async function deleteConnection (conName) {
 }
 
 async function getWifiScan () {
+  const ownSsids = await ownApSsids()
   try {
     const { stdout: devOut } = await execFileAsync('iw', ['dev'])
     const match = devOut.match(/Interface\s+(\S+)/)
     if (match) {
       const { stdout } = await execFileAsync('sudo', ['iw', 'dev', match[1], 'scan', 'ap-force'])
-      const networks = parseIwScan(stdout, ownApSsids())
+      const networks = parseIwScan(stdout, ownSsids)
       if (networks.length > 0) return networks
     }
   } catch (err) {
     console.log('iw scan unavailable, using nmcli: ' + err.message)
   }
   const out = await nmcli.run(['-t', '-f', 'SSID,SIGNAL,SECURITY', 'dev', 'wifi', 'list', '--rescan', 'auto'])
-  return parseNmcliWifiList(out, ownApSsids())
+  return parseNmcliWifiList(out, ownSsids)
 }
 
 function normalisePriority (priority) {
@@ -188,9 +189,6 @@ function normalisePriority (priority) {
 }
 
 async function addConnection (conName, conType, conAdapter, conSettings) {
-  if (conName === PROFILE.WIFI_AP) {
-    conSettings = { ...conSettings, ssid: os.hostname() }
-  }
   const ipv4 = buildIpv4Args(conSettings, { isNew: true })
   const typeArgs = conType === 'wifi' ? buildWifiArgs(conSettings, { isNew: true }) : []
   const conflict = checkStaticAddress(ipv4.address)
@@ -242,9 +240,6 @@ async function editConnection (conName, conSettings) {
   const profile = await getProfileInfo(conName)
   if (profile.id === PROFILE.ETH_SERVER && conSettings.ipaddresstype && conSettings.ipaddresstype !== 'shared') {
     throw requestError('Cannot modify IP mode for fallback profile: ' + profile.id)
-  }
-  if (profile.id === PROFILE.WIFI_AP && conSettings.mode) {
-    conSettings = { ...conSettings, ssid: os.hostname() }
   }
   const priority = normalisePriority(conSettings.priority)
   if (priority !== null && (profile.id === PROFILE.ETH_SERVER || profile.id === PROFILE.ETH_CLIENT)) {

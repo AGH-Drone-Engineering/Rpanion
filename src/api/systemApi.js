@@ -29,7 +29,7 @@ export function createSystemApi(token) {
 
   return {
     getIdentity: () => request('GET', '/api/system/identity'),
-    setHostname: (hostname) => request('POST', '/api/system/hostname', { hostname }),
+    setHostname: (hostname, updateApSsid) => request('POST', '/api/system/hostname', { hostname, updateApSsid }),
     setSshPassword: (password) => request('POST', '/api/system/sshpassword', { password })
   };
 }

@@ -188,7 +188,8 @@ If Rpanion-server runs in a trusted network or you ensure access control by othe
 Rpanion images ship with the device name ``rpanion`` (reachable as ``rpanion.local``), SSH user ``pi`` with the
 password from the image, and the Web GUI user ``admin``/``admin``. The "Device Settings" page changes:
 
-- the device name: hostname, mDNS name (``<name>.local``) and the SSID of the ``WiFiAP`` access point.
+- the device name: hostname and mDNS name (``<name>.local``). On saving, the page asks whether to set the
+  SSID of the ``WiFiAP`` access point to the same name (recommended).
   1-32 characters, lowercase letters, digits and hyphens, not only digits, not ``localhost``.
   The change is applied as a whole or rolled back. An active access point restarts with the new SSID
   a few seconds later, which disconnects its clients.

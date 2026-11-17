@@ -45,7 +45,7 @@ describe('system router', function () {
     return {
       calls,
       getIdentity: () => ({ hostname: 'rpanion', sshUser: 'pi' }),
-      setHostname: async (name) => { calls.push(['setHostname', name]) },
+      setHostname: async (name, opts) => { calls.push(['setHostname', name, opts]) },
       setSshPassword: async (pw) => { calls.push(['setSshPassword', pw]) },
       ...overrides
     }
@@ -63,8 +63,19 @@ describe('system router', function () {
     server = await startApp(identity)
     const res = await request(server, 'POST', '/api/system/hostname', { hostname: ' Rpanion-07 ' })
     assert.strictEqual(res.status, 200)
-    assert.deepStrictEqual(identity.calls, [['setHostname', 'rpanion-07']])
+    assert.deepStrictEqual(identity.calls, [['setHostname', 'rpanion-07', { updateApSsid: false }]])
     assert.strictEqual(res.body.infoMessage, 'Device name updated')
+  })
+
+  it('POST /api/system/hostname passes updateApSsid and rejects non-boolean values', async function () {
+    const identity = stubIdentity()
+    server = await startApp(identity)
+    const ok = await request(server, 'POST', '/api/system/hostname', { hostname: 'drone-1', updateApSsid: true })
+    assert.strictEqual(ok.status, 200)
+    assert.strictEqual(ok.body.updateApSsid, true)
+    const bad = await request(server, 'POST', '/api/system/hostname', { hostname: 'drone-1', updateApSsid: 'yes' })
+    assert.strictEqual(bad.status, 422)
+    assert.deepStrictEqual(identity.calls, [['setHostname', 'drone-1', { updateApSsid: true }]])
   })
 
   it('POST /api/system/hostname returns 422 for an invalid name', async function () {
