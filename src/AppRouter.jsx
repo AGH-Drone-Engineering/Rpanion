@@ -13,7 +13,7 @@ import AdhocConfig from './adhocwifi.jsx'
 import CloudConfig from './cloud.jsx'
 import VPN from './vpnconfig.jsx'
 import Logout from './logout.jsx'
-import UserManagement from './userManagement.jsx'
+import DeviceSettings from './deviceSettings.jsx'
 import PPPPage from './ppp.jsx'
 
 function AppRouter () {
@@ -77,7 +77,7 @@ function AppRouter () {
           <Link className='list-group-item list-group-item-action bg-light' to="/cloud">Cloud Upload</Link>
           <Link className='list-group-item list-group-item-action bg-light' to="/vpn">VPN Config</Link>
           <Link className='list-group-item list-group-item-action bg-light' to="/about">About</Link>
-          <Link className='list-group-item list-group-item-action bg-light' to="/users">User Management</Link>
+          <Link className='list-group-item list-group-item-action bg-light' to="/device">Device Settings</Link>
           {isAuthEnabled && (
             <Link className='list-group-item list-group-item-action bg-light' to="/logoutconfirm">Logout</Link>
           )}
@@ -102,7 +102,8 @@ function AppRouter () {
             {isAuthEnabled && (
               <Route path="/logoutconfirm" element={<Logout />} />
             )}
-            <Route exact path="/users" element={<UserManagement/>} />
+            <Route exact path="/device" element={<DeviceSettings/>} />
+            <Route exact path="/users" element={<Navigate to="/device" replace />} />
             <Route path="*" element={<NoMatch />} />
           </Routes>
         </div>

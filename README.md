@@ -70,7 +70,7 @@ First install the required packages:
 ```
 sudo apt install -y gstreamer1.0-plugins-good libgstrtspserver-1.0-0 gir1.2-gst-rtsp-server-1.0 
 sudo apt install -y gstreamer1.0-plugins-base-apps gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad
-sudo apt install -y network-manager python3 python3-gst-1.0 python3-pip dnsmasq git jq iw
+sudo apt install -y network-manager python3 python3-gst-1.0 python3-pip dnsmasq git jq iw avahi-daemon
 sudo apt install -y python3-lxml python3-numpy gpsbabel zip python3-dev gstreamer1.0-x ppp python3-venv
 sudo apt install -y python3-opencv v4l-utils python3-setuptools
 ```
@@ -176,12 +176,31 @@ making changes to the system via the GUI.
 The access control does *not* apply to any MAVLink or video streams
 
 The default username is ``admin`` and password ``admin``. This can be changed
-on the "User Management" page.
+on the "Device Settings" page.
 
 Usernames and passwords are stored in the ``user.json`` file in the Rpanion-server folder. Resetting this file (via ``git checkout user.json``)
 will reset the usernames/passwords back to it's defaults.
 
 If Rpanion-server runs in a trusted network or you ensure access control by other means, you can choose to disable the built-in access control by setting an environment variable `DISABLE_AUTH=1` on the node process, e.g. in the systemd `rpanion-server.service`.
+
+## Device name and SSH password
+
+Rpanion images ship with the device name ``rpanion`` (reachable as ``rpanion.local``), SSH user ``pi`` with the
+password from the image, and the Web GUI user ``admin``/``admin``. The "Device Settings" page changes:
+
+- the device name: hostname, mDNS name (``<name>.local``) and the SSID of the ``WiFiAP`` access point.
+  1-32 characters, lowercase letters, digits and hyphens, not only digits, not ``localhost``.
+  The change is applied as a whole or rolled back. An active access point restarts with the new SSID
+  a few seconds later, which disconnects its clients.
+- the SSH password of user ``pi`` (8-64 characters)
+- the Web GUI users
+
+Give each drone on the same network its own name. Two drones that both still use ``rpanion`` are renamed
+by mDNS to ``rpanion.local`` and ``rpanion-2.local`` in start-up order. Configure new drones one at a time.
+
+The settings are applied by ``/usr/local/sbin/rpanion-system``, installed by the .deb package and by
+``deploy/configure_system.sh``. If the Web GUI is not reachable, the name and password can be changed
+on the SD card before the first boot by editing ``user-data`` on the boot partition (``hostname:`` and ``user:``).
 
 ## Tests
 

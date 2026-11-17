@@ -41,6 +41,8 @@ const RateLimit = require('express-rate-limit')
 const pppConnection = require('./pppConnection.js')
 const ResourceGuard = require('./resourceGuard.js')
 const createNetworkRouter = require('./routes/network.js')
+const createSystemRouter = require('./routes/system.js')
+const { createSystemIdentity } = require('./systemIdentity.js')
 const limiter = RateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
   max: 120,
@@ -1365,13 +1367,14 @@ app.post('/api/camera/stop', authenticateToken, (req, res) => {
 });
 
 app.use(createNetworkRouter({ networkManager, authenticateToken }))
+app.use(createSystemRouter({ systemIdentity: createSystemIdentity(), authenticateToken }))
 
 // Pass GUI requests to the React app only in production mode
 if (process.env.NODE_ENV !== 'development')
 {
   app.get(['/', '/controller', '/about', '/network',
           '/video', '/vpn', '/ntrip', '/cloud', '/flightlogs',
-          '/apclients', '/adhoc', '/logoutconfirm', '/users', '/ppp'], (req, res) => {
+          '/apclients', '/adhoc', '/logoutconfirm', '/users', '/device', '/ppp'], (req, res) => {
     res.sendFile(path.join(__dirname, '..', '/build/index.html'))
   })
 }

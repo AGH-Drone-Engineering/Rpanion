@@ -52,6 +52,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ## Configure WiFi power save and AP watchdog
 "$SCRIPT_DIR/configure_wifi.sh"
 
+## Install helper for hostname and SSH password changes from the web UI
+"$SCRIPT_DIR/configure_system.sh"
+
 ## For wireguard. Must be installed last as it messes the DNS resolutions
 sudo apt install -y resolvconf
 

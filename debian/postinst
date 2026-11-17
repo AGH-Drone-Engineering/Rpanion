@@ -28,6 +28,10 @@ case "$1" in
         systemctl enable rpanion-server
         systemctl start rpanion-server
 
+        # Root helper for hostname and SSH password changes from the web UI.
+        # Root-owned copy: the rpanion user can write to the application directory.
+        install -o root -g root -m 755 /usr/share/rpanion-server/app/server/rpanion-system.sh /usr/local/sbin/rpanion-system
+
         # Allow relevant services to be disabled or enabled without password
         # Validate before install: a broken sudoers fragment disables sudo entirely
         SUDOERS_TMP=$(mktemp)
@@ -49,7 +53,9 @@ rpanion ALL=(ALL) NOPASSWD: \
   /usr/bin/pkill -SIGTERM pppd, \
   /usr/bin/cat /var/lib/NetworkManager/dnsmasq-*, \
   /usr/sbin/ip addr add * dev *, \
-  /usr/sbin/ip addr del * dev *
+  /usr/sbin/ip addr del * dev *, \
+  /usr/local/sbin/rpanion-system hostname *, \
+  /usr/local/sbin/rpanion-system sshpassword
 EOF
 
         if visudo -cf "$SUDOERS_TMP" >/dev/null; then

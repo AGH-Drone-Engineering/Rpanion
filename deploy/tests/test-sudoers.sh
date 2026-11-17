@@ -21,7 +21,13 @@ else
     echo "ok   - no unrestricted ip rule"
 fi
 
-for rule in '/usr/sbin/ip addr add \* dev \*' '/usr/sbin/ip addr del \* dev \*' '/usr/bin/nmcli \*' '/usr/sbin/pppd \*'; do
+if grep -Eq 'rpanion-system *(,|$)' "$TMP/sudoers"; then
+    echo "FAIL - rpanion-system allowed with arbitrary arguments"; FAILS=$((FAILS + 1))
+else
+    echo "ok   - rpanion-system limited to explicit subcommands"
+fi
+
+for rule in '/usr/sbin/ip addr add \* dev \*' '/usr/sbin/ip addr del \* dev \*' '/usr/bin/nmcli \*' '/usr/sbin/pppd \*' '/usr/local/sbin/rpanion-system hostname \*' '/usr/local/sbin/rpanion-system sshpassword'; do
     if grep -Eq "$rule" "$TMP/sudoers"; then
         echo "ok   - rule present: $rule"
     else

@@ -5,10 +5,12 @@ import Table from 'react-bootstrap/Table'
 import React from 'react'
 
 import basePage from './basePage.jsx'
+import DeviceNameSection from './components/device/DeviceNameSection.jsx'
+import SshPasswordSection from './components/device/SshPasswordSection.jsx'
 
 import './css/styles.css';
 
-class userManagement extends basePage {
+class deviceSettings extends basePage {
   constructor (props) {
     super(props)
     this.state = {
@@ -128,13 +130,20 @@ class userManagement extends basePage {
   }
 
   renderTitle () {
-    return 'User Management'
+    return 'Device Settings'
   }
 
   renderContent () {
     const isFormValid = this.state.username && (this.state.modalType === 'deleteUser' || (this.state.password && this.state.password === this.state.confirmPassword));
     return (
     <div style={{ width: 500 }}>
+      <h4>Device</h4>
+      <DeviceNameSection token={this.state.token} />
+      <h4 className="mt-4">SSH</h4>
+      <SshPasswordSection token={this.state.token} />
+      <h4 className="mt-4">Access point</h4>
+      <p><a href="/network">WiFi access point settings</a></p>
+      <h4 className="mt-4">Web UI users</h4>
       <p><i>Manage access to Web GUI</i></p>
       <p>Add and remove user access to Rpanion-server. Usernames and passwords must be 2-20 characters.</p>
       <Table id='users' striped bordered hover size="sm">
@@ -199,4 +208,4 @@ class userManagement extends basePage {
   }
 }
   
-export default userManagement
+export default deviceSettings

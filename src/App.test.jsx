@@ -12,7 +12,7 @@ import LogBrowser from './logBrowser.jsx'
 import NTRIPPage from './ntripcontroller.jsx'
 import AdhocConfig from './adhocwifi.jsx'
 import CloudConfig from './cloud.jsx'
-import UserManagement from './userManagement.jsx'
+import DeviceSettings from './deviceSettings.jsx'
 import PPPConnection from '../server/pppConnection.js'
 
 describe('#apptest()', function () {
@@ -79,10 +79,10 @@ describe('#apptest()', function () {
     root.unmount()
   })
 
-  test('user page renders without crashing', function () {
+  test('device settings page renders without crashing', function () {
     const div = document.createElement('div')
     const root = createRoot(div)
-    root.render(<UserManagement />)
+    root.render(<DeviceSettings />)
     root.unmount()
   })
 
