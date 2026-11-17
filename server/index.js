@@ -7,6 +7,7 @@ const { common } = require('node-mavlink')
 
 const networkManager = require('./networkManager')
 const aboutPage = require('./aboutInfo')
+const { SystemMonitor } = require('./systemMonitor')
 const videoStream = require('./videostream')
 const fcManagerClass = require('./flightController')
 const flightLogger = require('./flightLogger.js')
@@ -120,6 +121,7 @@ async function gracefulShutdown(signal, exitCode = 0) {
     http.closeAllConnections()
     
     // Clear intervals
+    systemMonitor.stop()
     if (FCStatusLoop) {
       clearInterval(FCStatusLoop)
       FCStatusLoop = null
@@ -387,6 +389,12 @@ fcManager.eventEmitter.on('gotMessage', (packet, data) => {
 })
 
 let FCStatusLoop = null
+
+// Samples only reach sockets that joined the 'systemstats' room (About page)
+const systemMonitor = new SystemMonitor({
+  onSample: (sample) => io.to('systemstats').emit('SystemStats', sample)
+})
+systemMonitor.start()
 
 app.use(express.urlencoded({ extended: true }))
 
@@ -1008,6 +1016,10 @@ app.get('/api/diskinfo', authenticateToken, (req, res) => {
   })
 })
 
+app.get('/api/systemstats', authenticateToken, (req, res) => {
+  res.json(systemMonitor.getHistory())
+})
+
 app.get('/api/FCOutputs', authenticateToken, (req, res) => {
   res.setHeader('Content-Type', 'application/json')
   res.send(JSON.stringify({ UDPoutputs: fcManager.getUDPOutputs() }))
@@ -1162,6 +1174,9 @@ io.engine.use((req, res, next) => {
 })
 
 io.on('connection', function (socket) {
+  socket.on('subscribeSystemStats', () => socket.join('systemstats'))
+  socket.on('unsubscribeSystemStats', () => socket.leave('systemstats'))
+
   socket.on('disconnect', () => {
     if (io.engine.clientsCount === 0 && FCStatusLoop !== null) {
       clearInterval(FCStatusLoop)

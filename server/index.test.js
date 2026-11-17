@@ -91,6 +91,17 @@ describe('Express server', function () {
     });
   });
 
+  describe('GET /api/systemstats', function () {
+    it('should return the monitor history', async function () {
+      const response = await request('GET', '/api/systemstats');
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.json.capacity, 150);
+      assert.ok(Array.isArray(response.json.samples));
+      assert.ok(response.json.samples.length >= 1);
+      assert.ok(response.json.latest);
+    });
+  });
+
   // Test that login works
   describe('POST /login', function () {
     it('should return a 200 status code', async function () {
