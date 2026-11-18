@@ -75,8 +75,8 @@ class FCDetails {
     this.enableComputerStatus = false
     this.readingComputerStatus = false
 
-    // Current binlog via mavlink-router
-    this.binlog = null
+    // Files currently written by the DataFlash logger
+    this.activeLogs = { tlog: null, bin: null }
 
     this.doLogging = false
 
@@ -338,13 +338,24 @@ class FCDetails {
     const proc = spawn(pythonPath, [
       dfloggerPath,
       '--connection', 'udp:127.0.0.1:14541',
-      '--logdir', logpaths.flightsLogsDir,
+      '--tlogdir', logpaths.tlogDir,
+      '--bindir', logpaths.binDir,
       '--rotate-on-disarm'
     ])
     this.dflogger = proc
 
+    let stdoutBuf = ''
     proc.stdout.on('data', (data) => {
       console.log(`DFLogger: ${data}`)
+      stdoutBuf += data.toString()
+      const lines = stdoutBuf.split('\n')
+      stdoutBuf = lines.pop()
+      lines.forEach((line) => {
+        const match = /^(TLOG|BIN): (.+)$/.exec(line.trim())
+        if (match && this.dflogger === proc) {
+          this.activeLogs[match[1].toLowerCase()] = match[2]
+        }
+      })
     })
 
     proc.stderr.on('data', (data) => {
@@ -357,6 +368,7 @@ class FCDetails {
       // clearing unconditionally would orphan the new process.
       if (this.dflogger === proc) {
         this.dflogger = null
+        this.activeLogs = { tlog: null, bin: null }
       }
     })
   }
@@ -371,6 +383,7 @@ class FCDetails {
     console.log('Stopping DataFlash logger')
     this.dflogger.kill('SIGTERM')
     this.dflogger = null
+    this.activeLogs = { tlog: null, bin: null }
   }
 
   // Serial port held by mavlink-router, or null when telemetry is stopped or uses UDP input
@@ -417,7 +430,7 @@ class FCDetails {
       cmd.push(this.UDPoutputs[i].IP + ':' + this.UDPoutputs[i].port)
     }
     //cmd.push('--log')
-    //cmd.push(logpaths.flightsLogsDir)
+    //cmd.push(logpaths.logsDir)
     //if (this.doLogging === true) {
     //  cmd.push('--telemetry-log')
     //}
@@ -447,23 +460,6 @@ class FCDetails {
 
     this.router.stderr.on('data', (data) => {
       console.error(`stderr: ${data}`)
-      if (data.toString().includes('Logging target') && data.toString().includes('.bin')) {
-        // remove old log, if it exists and is >60kB
-        try {
-          if (this.binlog !== null) {
-            const fileStat = fs.lstatSync(this.binlog)
-            if (Math.round(fileStat.size / 1024) < 60) {
-              fs.unlinkSync(this.binlog)
-            }
-          }
-        } catch (err) {
-          console.log(err)
-        }
-        const res = data.toString().split(' ')
-        const curLog = (res[res.length - 1]).trim()
-        this.binlog = path.join(logpaths.flightsLogsDir, curLog)
-        console.log('Current log is: ' + this.binlog)
-      }
     })
 
     this.router.on('close', (code) => {

@@ -61,12 +61,12 @@ class LoggerPage extends basePage {
   }
 
   // create an html table from a list of logfiles
-  renderLogTableData(logfilelist) {
+  renderLogTableData(logfilelist, folder) {
     const baseUrl = window.location.origin;
     return logfilelist.map((log) => {
       return (
         <tr key={log.key}>
-          <td><a href={baseUrl + "/logdownload/" + log.key} download={log.name}>{log.key}</a></td>
+          <td><a href={baseUrl + "/logdownload/" + folder + "/" + log.key} download={log.name}>{log.key}</a></td>
           <td>{log.size} KB</td>
           <td>{log.modified}</td>
         </tr>
@@ -93,6 +93,14 @@ class LoggerPage extends basePage {
     });
   }
 
+  clearResultMessage(result) {
+    const parts = [`Deleted ${result.deleted || 0} files`];
+    if (result.skipped > 0) {
+      parts.push(`${result.skipped} files in use were kept`);
+    }
+    return parts.join('. ');
+  }
+
   clearLogs = (event) => {
     //this.setState((state) => ({ value: state.value + 1}));
     const id = event.target.id;
@@ -107,13 +115,19 @@ class LoggerPage extends basePage {
         body: JSON.stringify({
           logtype: id,
         })
-      }).then(response => response.json())
-        .then(() => {
+      }).then(response => response.json().catch(() => ({})).then(data => {
+          if (!response.ok || data.error) {
+            throw new Error(data.error || response.statusText);
+          }
+          return data;
+        }))
+        .then(result => {
           this.componentDidMount();
-          this.setState({ waiting: false });
+          this.setState({ waiting: false, infoMessage: this.clearResultMessage(result) });
         })
         .catch(error => {
-          this.setState({ waiting: false, error: "Error deleting logfiles: " + error });
+          this.componentDidMount();
+          this.setState({ waiting: false, error: "Error deleting logfiles: " + error.message });
         });
     });
     event.preventDefault();
@@ -139,7 +153,7 @@ class LoggerPage extends basePage {
                   <tr><th>File Name</th><th>Size</th><th>Modified</th></tr>
                 </thead>
                 <tbody>
-                  {this.renderLogTableData(this.state.TlogFiles)}
+                  {this.renderLogTableData(this.state.TlogFiles, "telemetry")}
                 </tbody>
               </Table>
             </Accordion.Body>
@@ -158,7 +172,7 @@ class LoggerPage extends basePage {
                   <tr><th>File Name</th><th>Size</th><th>Modified</th></tr>
                 </thead>
                 <tbody>
-                  {this.renderLogTableData(this.state.BinlogFiles)}
+                  {this.renderLogTableData(this.state.BinlogFiles, "bin")}
                 </tbody>
               </Table>
             </Accordion.Body>
@@ -184,7 +198,7 @@ class LoggerPage extends basePage {
                   <tr><th>File Name</th><th>Size</th><th>Modified</th></tr>
                 </thead>
                 <tbody>
-                  {this.renderLogTableData(this.state.KMZlogFiles)}
+                  {this.renderLogTableData(this.state.KMZlogFiles, "kmz")}
                 </tbody>
               </Table>
             </Accordion.Body>

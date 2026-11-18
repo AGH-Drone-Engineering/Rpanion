@@ -30,7 +30,7 @@ const appRoot = require('app-root-path')  // for resolving relative paths
 
 // MEDIA_ROOT is the default storage area used by the Python helpers.
 // For security, user-provided paths are required to live within it.
-const MEDIA_ROOT = logpaths.mediaDir; // absolute path to rpanion-server/media
+const MEDIA_ROOT = logpaths.mediaDir; // absolute path to the media folder
 
 
 // A lost client is detected after pingInterval + pingTimeout (default 25 s + 20 s); the terminal
@@ -920,15 +920,22 @@ app.get('/api/networkclients', authenticateToken, (req, res) => {
 })
 
 // Serve the logfiles
-app.use('/logdownload', express.static(logpaths.flightsLogsDir))
+app.use('/logdownload/telemetry', express.static(logpaths.tlogDir))
+app.use('/logdownload/bin', express.static(logpaths.binDir))
+app.use('/logdownload/kmz', express.static(logpaths.kmzDir))
 // Serve the media files
 app.use('/media', express.static(MEDIA_ROOT))
 
 app.get('/api/logfiles', authenticateToken, (req, res) => {
-  logManager.getLogs((err, tlogs, binlogs, kmzlogs, media) => {
-    res.setHeader('Content-Type', 'application/json')
-    res.send(JSON.stringify({ TlogFiles: tlogs, BinlogFiles: binlogs, KMZlogFiles: kmzlogs, MediaFiles: media, url: req.protocol + '://' + req.headers.host }))
-  })
+  try {
+    logManager.getLogs((err, tlogs, binlogs, kmzlogs, media) => {
+      res.setHeader('Content-Type', 'application/json')
+      res.send(JSON.stringify({ TlogFiles: tlogs, BinlogFiles: binlogs, KMZlogFiles: kmzlogs, MediaFiles: media, url: req.protocol + '://' + req.headers.host }))
+    })
+  } catch (e) {
+    console.error('Error listing log files:', e)
+    res.status(500).json({ error: 'Error listing log files: ' + e.message })
+  }
 })
 
 app.post('/api/deletelogfiles', authenticateToken, [check('logtype').isIn(['tlog', 'binlog', 'kmzlog', 'media'])], (req, res) => {
@@ -938,14 +945,18 @@ app.post('/api/deletelogfiles', authenticateToken, [check('logtype').isIn(['tlog
     return res.status(422).json({ error: JSON.stringify(errors.array()) })
   }
 
-  logManager.clearlogs(req.body.logtype, fcManager.binlog)
-  res.setHeader('Content-Type', 'application/json')
-  res.send(JSON.stringify({}))
+  try {
+    const result = logManager.clearlogs(req.body.logtype, [fcManager.activeLogs.tlog, fcManager.activeLogs.bin])
+    res.json({ deleted: result.deleted, skipped: result.skipped })
+  } catch (e) {
+    console.error('Error deleting log files:', e)
+    res.status(500).json({ error: 'Error deleting log files: ' + e.message })
+  }
 })
 
 app.get('/api/approot', authenticateToken, (req, res) => {
   res.setHeader('Content-Type', 'application/json')
-  res.send(JSON.stringify({ appRoot: appRoot.toString() }))
+  res.send(JSON.stringify({ appRoot: appRoot.toString(), mediaRoot: MEDIA_ROOT }))
 })
 
 app.get('/api/softwareinfo', authenticateToken, (req, res) => {

@@ -19,6 +19,9 @@ case "$1" in
         # Set up Python virtual environment
         /usr/share/rpanion-server/app/python/setup-venv.sh
 
+        # Move flightlogs/ and media/ into logs/
+        /usr/share/rpanion-server/app/server/migrate-logs.sh
+
         # Set permissions
         chown -R rpanion /usr/share/rpanion-server
         chown -R rpanion /etc/rpanion-server

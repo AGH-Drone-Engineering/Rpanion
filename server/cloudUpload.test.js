@@ -1,6 +1,7 @@
 const assert = require('assert')
 const settings = require('settings-store')
 const CloudTest = require('./cloudUpload')
+const logpaths = require('./paths.js')
 
 describe('Cloud Upload Functions', function () {
   it('#cloudinit()', function () {
@@ -83,5 +84,39 @@ describe('Cloud Upload Functions', function () {
     assert.equal(cloudVar.conStatusStr(), 'Running')
 
     clearInterval(cloudVar.intervalObj)
+  })
+
+  describe('rsync arguments', function () {
+    function make (syncDeletions) {
+      settings.clear()
+      const cloudVar = new CloudTest(settings)
+      cloudVar.setSettingsBin(true, true, true, 'user@host:/dest', syncDeletions, false, false)
+      clearInterval(cloudVar.intervalObj)
+      return cloudVar
+    }
+
+    it('#logs upload sends the bin folder without include patterns', function () {
+      const cloudVar = make(false)
+      assert.equal(cloudVar.logsFolder, logpaths.binDir)
+      const args = cloudVar.buildRsyncArgs(cloudVar.logsFolder, 'user@host:/dest', ['media/'])
+      assert.ok(!args.some(a => a.startsWith('--include')))
+      assert.ok(!args.includes('--delete'))
+      assert.deepEqual(args.slice(-2), [logpaths.binDir + '/', 'user@host:/dest'])
+    })
+
+    it('#delete keeps the remote media folder when syncing logs', function () {
+      const cloudVar = make(true)
+      const args = cloudVar.buildRsyncArgs(cloudVar.logsFolder, 'user@host:/dest', ['media/'])
+      assert.ok(args.includes('--delete'))
+      assert.ok(args.includes('--filter=P media/'))
+    })
+
+    it('#media upload goes to the media subfolder', function () {
+      const cloudVar = make(true)
+      assert.equal(cloudVar.mediaFolder, logpaths.mediaDir)
+      const args = cloudVar.buildRsyncArgs(cloudVar.mediaFolder, 'user@host:/dest/media', [])
+      assert.ok(args.includes('--delete'))
+      assert.ok(!args.some(a => a.startsWith('--filter')))
+    })
   })
 })

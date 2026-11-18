@@ -31,6 +31,8 @@ else
     echo "WARNING: ssh.service drop-in missing in the image, SSH host keys kept (shared by all cards)." >&2
     echo "         Run deploy/configure_system.sh on the source card to fix." >&2
 fi
+## Logs and media of the master card are not shipped
+sudo find "$MNT/etc/rpanion-server/logs" -mindepth 2 -delete 2>/dev/null || true
 sudo truncate -s 0 "$MNT/etc/machine-id"
 sudo rm -f "$MNT/var/lib/dbus/machine-id"
 cleanup

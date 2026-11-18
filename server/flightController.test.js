@@ -169,6 +169,31 @@ describe('Flight Controller Functions', function () {
     })
   })
 
+  describe('DataFlash logger active files', function () {
+    afterEach(function () {
+      sinon.restore()
+    })
+
+    it('tracks TLOG/BIN lines from stdout and clears them on exit', function (done) {
+      const script = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dflogger-')), 'python')
+      fs.writeFileSync(script, '#!/bin/sh\nprintf "TLOG: /x/a.tlog\\nBIN: /x/a.bin\\nTLOG: /x/b.tlog\\n"\nsleep 0.3\n', { mode: 0o755 })
+      sinon.stub(logpaths, 'getPythonPath').returns(script)
+      settings.clear()
+      const FC = new FCManagerClass(settings)
+      FC.startDFLogger()
+      const proc = FC.dflogger
+      setTimeout(() => {
+        assert.deepEqual(FC.activeLogs, { tlog: '/x/b.tlog', bin: '/x/a.bin' })
+      }, 150)
+      proc.on('close', () => {
+        setImmediate(() => {
+          assert.deepEqual(FC.activeLogs, { tlog: null, bin: null })
+          done()
+        })
+      })
+    })
+  })
+
   describe('DataFlash logger lifecycle', function () {
     before(function () {
       try {

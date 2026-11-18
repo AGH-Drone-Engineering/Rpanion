@@ -10,6 +10,8 @@ const baseDir = isDev ?
     appRoot.toString() : 
     '/etc/rpanion-server';
 
+const logsDir = path.join(baseDir, 'logs');
+
 // Get Python executable path from venv if it exists, otherwise use system python3
 function getPythonPath() {
     const venvPython = path.join('/usr/share/rpanion-server/app', 'python', '.venv', 'bin', 'python3');
@@ -27,9 +29,12 @@ function getPythonPath() {
 module.exports = {
     usersFile: path.join(baseDir, 'config', 'user.json'),
     settingsFile: path.join(baseDir, 'config', 'settings.json'),
-    flightsLogsDir: path.join(baseDir, 'flightlogs'),
-    kmzDir: path.join(baseDir, 'flightlogs', 'kmzlogs'),
-    mediaDir: path.join(baseDir, 'media'),
+    logsDir: logsDir,
+    tlogDir: path.join(logsDir, 'telemetry'),
+    binDir: path.join(logsDir, 'bin'),
+    kmzDir: path.join(logsDir, 'kmz'),
+    terminalLogDir: path.join(logsDir, 'terminal'),
+    mediaDir: path.join(logsDir, 'media'),
     sshDir: path.join(baseDir, 'config', 'ssh'),
     getPythonPath: getPythonPath,
 };

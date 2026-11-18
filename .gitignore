@@ -36,3 +36,4 @@ settingsTest.json
 /python/.venv
 
 /media
+__pycache__/

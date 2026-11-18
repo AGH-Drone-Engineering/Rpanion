@@ -22,12 +22,14 @@ class logConverter {
 
     // interval for conversion checks
     this.intervalObj = setInterval(() => {
-      console.log('LogConverter interval')
       if (this.options.doLogConversion) {
+        if (this.converterPid && this.converterPid.exitCode === null && this.converterPid.signalCode === null) {
+          return
+        }
         try {
           console.log('Doing log conversion...')
           const pythonPath = logpaths.getPythonPath()
-          this.converterPid = spawn(pythonPath, [this.pythonScript, logpaths.flightsLogsDir])
+          this.converterPid = spawn(pythonPath, [this.pythonScript, logpaths.tlogDir, logpaths.kmzDir])
           this.converterPid.stdout.on('data', (data) => {
             console.log(`stdout from log converter: ${data}`)
           })

@@ -15,6 +15,7 @@ class VideoPage extends basePage {
     this.state = {
       ...this.state,
       appRoot: '',
+      mediaRoot: '',
       ifaces: [],
       dev: [],
 
@@ -76,6 +77,7 @@ class VideoPage extends basePage {
       .then(data => {
         this.setState({
           appRoot: data.appRoot,
+          mediaRoot: data.mediaRoot,
           photoMediaDestination: this.state.photoMediaDestination || '',
           videoMediaDestination: this.state.videoMediaDestination || ''
         });
@@ -796,7 +798,7 @@ renderContent() {
           trigger the camera.
         </p>
         {(!isStreaming || this.state.recordLocally) && (
-          <p>Media destination folder (an optional relative sub-folder inside: <i>{this.state.appRoot}/media/</i>)</p>
+          <p>Media destination folder (an optional relative sub-folder inside: <i>{this.state.mediaRoot}/</i>)</p>
         )}
 
         {/* Camera Mode Selection */}

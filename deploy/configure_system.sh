@@ -12,6 +12,10 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sudo install -o root -g root -m 755 "$SCRIPT_DIR/../server/rpanion-system.sh" /usr/local/sbin/rpanion-system
 
+## Log directory layout (telemetry, bin, kmz, terminal, media)
+sudo "$SCRIPT_DIR/../server/migrate-logs.sh"
+sudo chown -R rpanion:rpanion /etc/rpanion-server/logs
+
 # Separate fragment from the one written by the .deb postinst, so both install paths work.
 # Validate before install: a broken sudoers fragment disables sudo entirely
 SUDOERS_TMP=$(mktemp)

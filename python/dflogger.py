@@ -6,9 +6,11 @@ Based on MAVProxy's dataflash_logger module.
 Logs ArduPilot DataFlash logs transmitted over MAVLink.
 
 Usage:
+    python3 dflogger.py --connection <mavlink_connection> --tlogdir <dir> --bindir <dir>
     python3 dflogger.py --connection <mavlink_connection> --logdir <log_directory>
 
 Examples:
+    python3 dflogger.py --connection udp:127.0.0.1:14550 --tlogdir ./tlogs --bindir ./bins
     python3 dflogger.py --connection udp:127.0.0.1:14550 --logdir ./logs
     python3 dflogger.py --connection /dev/ttyUSB0 --logdir /var/logs/flight
     python3 dflogger.py --connection tcp:192.168.1.10:5760 --logdir ./logs --verbose
@@ -30,24 +32,31 @@ class DataFlashLogger:
     def __init__(
             self,
             connection_string,
-            logdir,
+            logdir=None,
             verbose=False,
             target_system=0,
             target_component=mavutil.mavlink.MAV_COMP_ID_LOG,
-            rotate_on_disarm=False):
+            rotate_on_disarm=False,
+            tlogdir=None,
+            bindir=None):
         """
         Initialize the DataFlash logger
 
         Args:
             connection_string: PyMAVLink connection string (e.g., 'udp:127.0.0.1:14550')
-            logdir: Directory to store log files
+            logdir: Directory for both log types when tlogdir/bindir are not given
             verbose: Enable verbose output
             target_system: Target system ID (0 = any)
             target_component: Target component ID
             rotate_on_disarm: Rotate log file when vehicle disarms
+            tlogdir: Directory for .tlog files
+            bindir: Directory for .bin files
         """
         self.connection_string = connection_string
-        self.logdir = logdir
+        self.tlogdir = tlogdir or logdir
+        self.bindir = bindir or logdir
+        if not self.tlogdir or not self.bindir:
+            raise ValueError("tlogdir and bindir (or logdir) are required")
         self.verbose = verbose
         self.target_system = target_system
         self.target_component = target_component
@@ -86,12 +95,18 @@ class DataFlashLogger:
         self.last_datablock_time = None
         self.pending_rotation = False
 
-        # Create log directory if it doesn't exist
-        try:
-            os.makedirs(self.logdir, exist_ok=True)
-        except OSError as e:
-            print(f"Error creating log directory {self.logdir}: {e}")
-            sys.exit(1)
+        # Telemetry log state
+        self.tlog_armed = None
+        self.tlog_dirty = False
+        self.bin_dirty = False
+        self.last_sync_time = time.time()
+
+        for d in (self.tlogdir, self.bindir):
+            try:
+                os.makedirs(d, exist_ok=True)
+            except OSError as e:
+                print(f"Error creating log directory {d}: {e}", flush=True)
+                sys.exit(1)
 
     def connect(self):
         """Establish MAVLink connection"""
@@ -129,26 +144,32 @@ class DataFlashLogger:
         # Generate filename with timestamp only
         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         filename = f'{timestamp}.{extension}'
-        return os.path.join(self.logdir, filename)
+        directory = self.tlogdir if extension == 'tlog' else self.bindir
+        path = os.path.join(directory, filename)
+        n = 2
+        while os.path.exists(path):
+            path = os.path.join(directory, f'{timestamp}-{n}.{extension}')
+            n += 1
+        return path
 
     def start_new_log(self):
         """Open a new dataflash log, reset state"""
         # Close old log file if it exists
         if self.logfile is not None:
             try:
-                self.logfile.close()
+                self.close_synced(self.logfile)
                 print("DFLogger: Closed previous BIN log")
             except Exception as e:
                 print(f"DFLogger: Error closing previous BIN log: {e}")
 
         # Generate bin filename with timestamp
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        bin_filename = os.path.join(self.logdir, f'{timestamp}.bin')
+        bin_filename = self.new_log_filepath('bin')
 
         self.last_seqno = 0
         self.logfile = open(bin_filename, 'w+b')
-        print("DFLogger: BIN logging started")
-        print(f"  BIN: {bin_filename}")
+        self.bin_dirty = False
+        print("DFLogger: BIN logging started", flush=True)
+        print(f"BIN: {bin_filename}", flush=True)
 
         self.download = 0
         self.prev_download = 0
@@ -320,6 +341,60 @@ class DataFlashLogger:
             self.last_seqno = m.seqno
 
         self.download += size
+        self.bin_dirty = True
+
+    @staticmethod
+    def close_synced(f):
+        """Flush, fsync and close a log file"""
+        try:
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            f.close()
+
+    def sync_files(self, force=False):
+        """fsync open logs every 5 s when data was written, or immediately when forced"""
+        now = time.time()
+        if not force and now - self.last_sync_time < 5:
+            return
+        self.last_sync_time = now
+        for name, dirty in (('tlogfile', self.tlog_dirty), ('logfile', self.bin_dirty)):
+            f = getattr(self, name)
+            if f is None or not (dirty or force):
+                continue
+            try:
+                f.flush()
+                os.fsync(f.fileno())
+            except Exception as e:
+                if self.verbose:
+                    print(f"DFLogger: fsync failed: {e}")
+            if name == 'tlogfile':
+                self.tlog_dirty = False
+            else:
+                self.bin_dirty = False
+
+    def open_tlog(self):
+        """Close the current tlog and open a new one"""
+        if self.tlogfile is not None:
+            try:
+                self.close_synced(self.tlogfile)
+            except Exception as e:
+                print(f"DFLogger: Error closing previous TLOG: {e}", flush=True)
+        tlog_filename = self.new_log_filepath('tlog')
+        self.tlogfile = open(tlog_filename, 'w+b')
+        self.tlog_dirty = False
+        print(f"TLOG: {tlog_filename}", flush=True)
+
+    def handle_tlog_heartbeat(self, msg):
+        """Rotate the tlog on the autopilot armed -> disarmed transition"""
+        if not self.master.probably_vehicle_heartbeat(msg):
+            return
+        armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+        was_armed = self.tlog_armed
+        self.tlog_armed = armed
+        if was_armed and not armed:
+            print("DFLogger: Vehicle disarmed, rotating TLOG", flush=True)
+            self.open_tlog()
 
     def idle_print_status(self):
         """Print out statistics every 10 seconds"""
@@ -481,14 +556,11 @@ class DataFlashLogger:
             return False
 
         print("DFLogger: Starting dataflash and telemetry logging...")
-        print(f"Log directory: {self.logdir}")
-        print("Press Ctrl+C to stop")
+        print(f"TLOG directory: {self.tlogdir}")
+        print(f"BIN directory: {self.bindir}")
+        print("Press Ctrl+C to stop", flush=True)
 
-        # Open tlog file immediately
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        tlog_filename = os.path.join(self.logdir, f'{timestamp}.tlog')
-        self.tlogfile = open(tlog_filename, 'w+b')
-        print(f"TLOG: {tlog_filename}")
+        self.open_tlog()
 
         try:
             while self.running:
@@ -501,11 +573,17 @@ class DataFlashLogger:
                         self.handle_datablock(msg)
                     else:
                         # don't include remote data blocks in tlog
+                        if msg.get_type() == 'HEARTBEAT':
+                            try:
+                                self.handle_tlog_heartbeat(msg)
+                            except Exception as e:
+                                print(f"DFLogger: Error rotating TLOG: {e}", flush=True)
                         if self.tlogfile is not None:
                             try:
                                 usec = self.get_usec()
                                 self.tlogfile.write(bytearray(struct.pack('>Q', usec) + msg.get_msgbuf()))
                                 self.tlogfile.flush()
+                                self.tlog_dirty = True
                             except Exception as e:
                                 if self.verbose:
                                     print(f"Error writing to tlog: {e}")
@@ -515,6 +593,8 @@ class DataFlashLogger:
 
                     # Small sleep to prevent busy loop
                     time.sleep(0.001)
+
+                self.sync_files()
 
         except KeyboardInterrupt:
             print("\nDFLogger: Interrupted by user")
@@ -547,14 +627,14 @@ class DataFlashLogger:
         # Close log files
         if self.logfile is not None:
             try:
-                self.logfile.close()
+                self.close_synced(self.logfile)
                 print("DFLogger: BIN log file closed")
             except Exception:
                 pass
 
         if self.tlogfile is not None:
             try:
-                self.tlogfile.close()
+                self.close_synced(self.tlogfile)
                 print("DFLogger: TLOG file closed")
             except Exception:
                 pass
@@ -582,7 +662,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --connection udp:127.0.0.1:14550 --logdir ./logs
+  %(prog)s --connection udp:127.0.0.1:14550 --tlogdir ./tlogs --bindir ./bins
   %(prog)s --connection /dev/ttyUSB0 --logdir /var/logs/flight
   %(prog)s --connection tcp:192.168.1.10:5760 --logdir ./logs --verbose
   %(prog)s --connection udpin:0.0.0.0:14550 --logdir ./logs --rotate-on-disarm
@@ -597,8 +677,17 @@ Examples:
 
     parser.add_argument(
         '--logdir',
-        required=True,
-        help='Directory to store log files'
+        help='Directory for both log types (used when --tlogdir/--bindir are not given)'
+    )
+
+    parser.add_argument(
+        '--tlogdir',
+        help='Directory to store .tlog files'
+    )
+
+    parser.add_argument(
+        '--bindir',
+        help='Directory to store .bin files'
     )
 
     parser.add_argument(
@@ -628,11 +717,16 @@ Examples:
     )
 
     args = parser.parse_args()
+    if not args.logdir and not (args.tlogdir and args.bindir):
+        parser.error('--tlogdir and --bindir (or --logdir) are required')
+    sys.stdout.reconfigure(line_buffering=True)
 
     # Create logger instance
     logger = DataFlashLogger(
         connection_string=args.connection,
         logdir=args.logdir,
+        tlogdir=args.tlogdir,
+        bindir=args.bindir,
         verbose=args.verbose,
         target_system=args.target_system,
         target_component=args.target_component,

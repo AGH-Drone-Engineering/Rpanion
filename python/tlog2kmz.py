@@ -48,11 +48,14 @@ def mavtogpx_filepath():
     raise FileNotFoundError("mavtogpx.py not found. Install pymavlink: pip install pymavlink")
 
 
-def convert_tlog_files(folder):
+def convert_tlog_files(folder, kmzdir):
     """Convert any tlog files to GPX,  KML, KMZ and PNG."""
     mavlog = glob.glob(os.path.join(folder, "*.tlog"))
+    if not mavlog:
+        return True
+    os.makedirs(kmzdir, exist_ok=True)
     latest_file = max(mavlog, key=os.path.getctime)
-    kmzlogs = glob.glob(os.path.join(folder, "kmzlogs", "*.kmz"))
+    kmzlogs = glob.glob(os.path.join(kmzdir, "*.kmz"))
     passed = True
     for m in mavlog:
 
@@ -81,7 +84,7 @@ def convert_tlog_files(folder):
 
         try:
             run_cmd('zip %s.kmz %s.kml' % (m, m))
-            run_cmd('mv {0}.kmz '.format(m) + os.path.join(folder, "kmzlogs"))
+            run_cmd('mv {0}.kmz '.format(m) + kmzdir)
         except subprocess.CalledProcessError:
             passed = False
 
@@ -101,11 +104,12 @@ def convert_tlog_files(folder):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Convert tlog files to KMZ format')
     parser.add_argument('folder', help='folder containing tlog files')
+    parser.add_argument('kmzdir', help='folder for the converted kmz files')
     args = parser.parse_args()
 
     starttime = timeit.default_timer()
     print("[tlog2kmz.py] Starting:", starttime)
 
-    run_result = convert_tlog_files(args.folder)
+    run_result = convert_tlog_files(args.folder, args.kmzdir)
 
     print("[tlog2kmz.py] Passed = {passed} | Time = {time} seconds | now = {now}".format(passed=run_result, time=(timeit.default_timer() - starttime), now=(datetime.now())))

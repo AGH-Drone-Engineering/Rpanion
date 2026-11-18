@@ -23,7 +23,7 @@ class cloudUpload {
       interval: 20
     }
 
-    this.logsFolder = logpaths.flightsLogsDir
+    this.logsFolder = logpaths.binDir
     this.mediaFolder = logpaths.mediaDir
 
     this.rsyncPidLogs = null
@@ -66,7 +66,7 @@ class cloudUpload {
     }
     // Skip a category that's still mid-sync - large media can take longer than one interval.
     if (this.options.uploadLogs && !this.isRunning(this.rsyncPidLogs)) {
-      this.rsyncPidLogs = this.runRsync(this.logsFolder, this.options.binUploadLink, ['*.bin'],
+      this.rsyncPidLogs = this.runRsync(this.logsFolder, this.options.binUploadLink, ['media/'],
         (error) => { this.lastErrorLogs = error })
     }
     if (this.options.uploadMedia && !this.isRunning(this.rsyncPidMedia)) {
@@ -91,10 +91,8 @@ class cloudUpload {
     return this.fcManager.m.statusArmed ? 'armed' : 'disarmed'
   }
 
-  // Syncs source/ to destination over ssh. onDone(error) fires once rsync
-  // finishes, '' on success.
-  runRsync (source, destination, includes, onDone) {
-    console.log('Syncing', source, 'to', destination)
+  // rsync arguments; protectedPaths are remote paths kept when --delete is used
+  buildRsyncArgs (source, destination, protectedPaths) {
     const args = []
 
     if (this.options.windowsDestination) {
@@ -107,13 +105,21 @@ class cloudUpload {
     }
 
     args.push('-e', SSH_SHELL)
-    includes.forEach(pattern => args.push(`--include=${pattern}`))
 
     if (this.options.syncDeletions) {
+      protectedPaths.forEach(p => args.push(`--filter=P ${p}`))
       args.push('--delete')
     }
 
     args.push(source + '/', destination)
+    return args
+  }
+
+  // Syncs source/ to destination over ssh. onDone(error) fires once rsync
+  // finishes, '' on success.
+  runRsync (source, destination, protectedPaths, onDone) {
+    console.log('Syncing', source, 'to', destination)
+    const args = this.buildRsyncArgs(source, destination, protectedPaths)
 
     let outputBuffer = ''
     const captureOutput = (data) => {
