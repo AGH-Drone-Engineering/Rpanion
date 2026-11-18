@@ -434,15 +434,14 @@ class videoStream {
         
         this.stillDevices = cameraDevices;
 
-        const defaultDevice = cameraDevices.find(dev => dev.caps && dev.caps.length > 0);
-        const defaultCap = defaultDevice?.caps[0];
+        const { selectedDevice, selectedCap } = videoStream.selectStillDevice(cameraDevices, this.stillSettings);
         const stillMediaDestination = this.toRelativePath(this.stillSettings?.mediaDestination || '');
 
         return callback(null, {
           devices: cameraDevices,
           capabilities: capabilities,
-          selectedDevice: defaultDevice,
-          selectedCap: defaultCap,
+          selectedDevice,
+          selectedCap,
           stillMediaDestination
         });
       } catch (e) {
@@ -1533,5 +1532,15 @@ class videoStream {
     }
   }
 }
+
+// Saved photo device and resolution, else the first device with caps and its first cap
+videoStream.selectStillDevice = function (devices, saved) {
+  const withCaps = devices.filter(dev => dev.caps && dev.caps.length > 0);
+  const savedDevice = saved && withCaps.find(dev => dev.id === saved.device || dev.device === saved.device);
+  const selectedDevice = savedDevice || withCaps[0];
+  const savedCap = savedDevice && savedDevice.caps.find(c =>
+    c.width === saved.width && c.height === saved.height && (!saved.format || c.format === saved.format));
+  return { selectedDevice, selectedCap: savedCap || selectedDevice?.caps[0] };
+};
 
 module.exports = videoStream

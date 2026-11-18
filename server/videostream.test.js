@@ -87,6 +87,40 @@ describe('Video Functions', function () {
     })
   }).timeout(5000)
 
+  describe('selectStillDevice()', function () {
+    const devices = [
+      { id: 'imx708', device: '/dev/video10', caps: [] },
+      { id: '/dev/video0', device: '/dev/video0', caps: [
+        { format: 'YUYV', width: 2592, height: 1944 },
+        { format: 'MJPG', width: 2592, height: 1944 },
+        { format: 'MJPG', width: 1920, height: 1080 }
+      ] },
+      { id: '/dev/video2', device: '/dev/video2', caps: [{ format: 'YUYV', width: 640, height: 480 }] }
+    ]
+
+    it('returns the saved device and resolution', function () {
+      const res = VideoStream.selectStillDevice(devices, { device: '/dev/video2', width: 640, height: 480, format: 'YUYV' })
+      assert.strictEqual(res.selectedDevice, devices[2])
+      assert.strictEqual(res.selectedCap, devices[2].caps[0])
+      const mjpg = VideoStream.selectStillDevice(devices, { device: '/dev/video0', width: 1920, height: 1080, format: 'MJPG' })
+      assert.strictEqual(mjpg.selectedCap, devices[1].caps[2])
+    })
+
+    it('falls back to the first device with caps', function () {
+      for (const saved of [null, { device: '/dev/video9', width: 640, height: 480 }]) {
+        const res = VideoStream.selectStillDevice(devices, saved)
+        assert.strictEqual(res.selectedDevice, devices[1])
+        assert.strictEqual(res.selectedCap, devices[1].caps[0])
+      }
+    })
+
+    it('keeps the saved device when its resolution is gone', function () {
+      const res = VideoStream.selectStillDevice(devices, { device: '/dev/video0', width: 320, height: 240, format: 'MJPG' })
+      assert.strictEqual(res.selectedDevice, devices[1])
+      assert.strictEqual(res.selectedCap, devices[1].caps[0])
+    })
+  })
+
   it('#videomanagerisUbuntu()', async function () {
     settings.clear()
     const vManager = new VideoStream(settings)
