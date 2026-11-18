@@ -1,15 +1,78 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import Button from 'react-bootstrap/Button';
 import Modal from 'react-bootstrap/Modal';
 import Nav from 'react-bootstrap/Nav';
 
-// Same limit as MAX_WINDOWS in server/terminal.js, which enforces it
+// Same limits as MAX_WINDOWS and MAX_TAB_NAME in server/terminal.js, which enforces them
 export const MAX_TABS = 8;
+export const MAX_TAB_NAME = 32;
 
-function TerminalTabs({ windows, onSelect, onNew, onClose }) {
+// Inline name editor: Enter or leaving the field saves, Escape cancels. An empty name returns
+// the tab to automatic naming (name of the running program).
+function TabNameInput({ initial, onSave, onCancel }) {
+  const [value, setValue] = useState(initial);
+  const [done, setDone] = useState(false);
+  const finish = (save) => {
+    if (done) return;
+    setDone(true);
+    if (save) onSave(value.trim());
+    else onCancel();
+  };
+  return (
+    <input
+      type="text"
+      aria-label="Tab name"
+      className="form-control form-control-sm d-inline-block"
+      style={{ width: '12em' }}
+      value={value}
+      maxLength={MAX_TAB_NAME}
+      autoFocus
+      onFocus={(event) => event.target.select()}
+      onChange={(event) => setValue(event.target.value)}
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      onBlur={() => finish(true)}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Enter') finish(true);
+        if (event.key === 'Escape') finish(false);
+      }}
+    />
+  );
+}
+
+TabNameInput.propTypes = {
+  initial: PropTypes.string,
+  onSave: PropTypes.func.isRequired,
+  onCancel: PropTypes.func.isRequired
+};
+
+function TerminalTabs({ windows, onSelect, onNew, onClose, onRename }) {
   const [closing, setClosing] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [menu, setMenu] = useState(null);
   const canClose = windows.length > 1;
+
+  // Context menu closes on any click elsewhere, scrolling or Escape
+  useEffect(() => {
+    if (!menu) return undefined;
+    const hide = () => setMenu(null);
+    const onKey = (event) => { if (event.key === 'Escape') hide(); };
+    window.addEventListener('click', hide);
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', hide);
+      window.removeEventListener('scroll', hide, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
+
+  const saveName = (id, name) => {
+    setEditing(null);
+    onRename(id, name);
+  };
 
   const confirmClose = () => {
     const id = closing.id;
@@ -29,9 +92,18 @@ function TerminalTabs({ windows, onSelect, onNew, onClose }) {
               active={w.active}
               aria-selected={w.active}
               className="text-nowrap"
+              title="Double-click or right-click to rename"
               onClick={() => onSelect(w.id)}
+              onDoubleClick={() => setEditing(w.id)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setMenu({ id: w.id, position: i + 1, x: event.clientX, y: event.clientY });
+              }}
             >
-              {i + 1} {w.name}
+              {i + 1}{' '}
+              {editing === w.id
+                ? <TabNameInput initial={w.name} onSave={(name) => saveName(w.id, name)} onCancel={() => setEditing(null)} />
+                : w.name}
               {canClose && (
                 <span
                   role="button"
@@ -67,6 +139,24 @@ function TerminalTabs({ windows, onSelect, onNew, onClose }) {
         </Nav.Item>
       </Nav>
 
+      {menu && (
+        <div
+          role="menu"
+          className="list-group shadow"
+          style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 1050, minWidth: '8em' }}
+        >
+          <button type="button" role="menuitem" className="list-group-item list-group-item-action py-1"
+            onClick={() => { setEditing(menu.id); setMenu(null); }}>
+            Rename
+          </button>
+          <button type="button" role="menuitem" className="list-group-item list-group-item-action py-1"
+            disabled={!canClose}
+            onClick={() => { setClosing({ id: menu.id, position: menu.position }); setMenu(null); }}>
+            Close
+          </button>
+        </div>
+      )}
+
       <Modal show={closing !== null} onHide={() => setClosing(null)}>
         <Modal.Header closeButton>
           <Modal.Title>Close tab</Modal.Title>
@@ -91,7 +181,8 @@ TerminalTabs.propTypes = {
   })).isRequired,
   onSelect: PropTypes.func.isRequired,
   onNew: PropTypes.func.isRequired,
-  onClose: PropTypes.func.isRequired
+  onClose: PropTypes.func.isRequired,
+  onRename: PropTypes.func.isRequired
 };
 
 export default TerminalTabs;

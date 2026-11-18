@@ -177,6 +177,7 @@ function TerminalSession({ token }) {
           onSelect={(id) => sendWindowCommand('window-select', id)}
           onNew={() => sendWindowCommand('window-new')}
           onClose={(id) => sendWindowCommand('window-close', id)}
+          onRename={(id, name) => sendWindowCommand('window-rename', { id, name })}
         />
       )}
       <div

@@ -128,6 +128,17 @@ function createTerminalSystem ({ execFile = childProcess.execFile, readFile = fs
       await tmux(['kill-window', '-t', id])
     },
 
+    // An empty name hands the window back to tmux automatic naming (name of the running program)
+    async renameWindow (id, name) {
+      checkWindow(id)
+      if (name === '') {
+        await tmux(['set-window-option', '-t', id, 'automatic-rename', 'on'])
+        return
+      }
+      // rename-window expands #{...} formats; ## keeps a literal #
+      await tmux(['rename-window', '-t', id, '--', name.replace(/#/g, '##')])
+    },
+
     async selectWindow (session, id) {
       checkSession(session)
       checkWindow(id)

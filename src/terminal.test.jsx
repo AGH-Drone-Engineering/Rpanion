@@ -256,6 +256,68 @@ describe('TerminalSession', () => {
       expect(emitted(socket, 'window-close')).toEqual(['@1'])
     })
 
+    const nameInput = () => document.querySelector('input[aria-label="Tab name"]')
+    const typeName = async (value) => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      await act(async () => {
+        setter.call(nameInput(), value)
+        nameInput().dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    }
+    const pressKey = (key) => act(async () => {
+      nameInput().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    })
+
+    test('double-click renames a tab in place; Enter saves, Escape cancels', async () => {
+      const { div, socket } = await attachedWith([win(0, true), win(1)])
+      await act(async () => { tabs(div)[1].dispatchEvent(new MouseEvent('dblclick', { bubbles: true })) })
+      expect(nameInput().value).toBe('htop')
+      await typeName('  camera  ')
+      await pressKey('Enter')
+      expect(emitted(socket, 'window-rename')).toEqual([{ id: '@1', name: 'camera' }])
+      expect(nameInput()).toBe(null)
+
+      await act(async () => { tabs(div)[0].dispatchEvent(new MouseEvent('dblclick', { bubbles: true })) })
+      await typeName('ignored')
+      await pressKey('Escape')
+      expect(nameInput()).toBe(null)
+      expect(emitted(socket, 'window-rename')).toHaveLength(1)
+    })
+
+    test('leaving the name field saves; an empty name goes back to automatic naming', async () => {
+      const { div, socket } = await attachedWith([win(0, true)])
+      await act(async () => { tabs(div)[0].dispatchEvent(new MouseEvent('dblclick', { bubbles: true })) })
+      await typeName('')
+      await act(async () => { nameInput().blur() })
+      expect(emitted(socket, 'window-rename')).toEqual([{ id: '@0', name: '' }])
+    })
+
+    test('right-click opens a menu with Rename and Close', async () => {
+      const { div, socket } = await attachedWith([win(0, true), win(1)])
+      await act(async () => { tabs(div)[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 20 })) })
+      const items = () => [...document.querySelectorAll('[role=menuitem]')]
+      expect(items().map(b => b.textContent.trim())).toEqual(['Rename', 'Close'])
+      await act(async () => { items()[0].click() })
+      expect(items()).toHaveLength(0)
+      expect(nameInput().value).toBe('htop')
+      await pressKey('Escape')
+
+      await act(async () => { tabs(div)[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })) })
+      await act(async () => { items()[1].click() })
+      const confirm = [...document.querySelectorAll('.modal button')].find(b => b.textContent === 'Close tab')
+      await act(async () => { confirm.click() })
+      await settle()
+      expect(emitted(socket, 'window-close')).toEqual(['@1'])
+    })
+
+    test('the menu cannot close the last tab and closes on Escape', async () => {
+      const { div } = await attachedWith([win(0, true)])
+      await act(async () => { tabs(div)[0].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })) })
+      expect([...document.querySelectorAll('[role=menuitem]')][1].disabled).toBe(true)
+      await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+      expect(document.querySelectorAll('[role=menu]')).toHaveLength(0)
+    })
+
     test('hides the close button on the last tab', async () => {
       const { div } = await attachedWith([win(0, true)])
       expect(div.querySelector('[aria-label^="Close tab"]')).toBe(null)

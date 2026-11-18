@@ -77,6 +77,10 @@ describe('terminal relay', function () {
         system.calls.push(['kill', id])
         system.windows = system.windows.filter(w => w.id !== id)
       },
+      renameWindow: async (id, name) => {
+        system.calls.push(['rename', id, name])
+        system.windows.forEach(w => { if (w.id === id) w.name = name || 'bash' })
+      },
       selectWindow: async (session, id) => {
         system.calls.push(['select', session, id])
         system.windows.forEach(w => { w.active = w.id === id })
@@ -397,6 +401,31 @@ describe('terminal relay', function () {
       await waitFor(() => socket.windowLists.length === 2, 'list after select')
       assert.deepStrictEqual(system.calls.filter(c => c[0] === 'select'), [['select', sessionOf(), '@1']])
       assert.deepStrictEqual(socket.windowLists[1].map(w => w.active), [false, true])
+    })
+
+    it('renames a window, trims the name and refuses long or control-character names', async function () {
+      const socket = await attached()
+      socket.emit('window-rename', { id: '@0', name: '  camera  ' })
+      await waitFor(() => socket.windowLists.length === 2, 'list after rename')
+      assert.strictEqual(socket.windowLists[1][0].name, 'camera')
+      socket.emit('window-rename', { id: '@0', name: 'x'.repeat(33) })
+      socket.emit('window-rename', { id: '@0', name: 'a\nb' })
+      await waitFor(() => socket.windowErrors.length === 2, 'refusals')
+      assert.match(socket.windowErrors[0], /up to 32 characters/)
+      socket.emit('window-rename', { id: '@0', name: '' })
+      await waitFor(() => system.calls.filter(c => c[0] === 'rename').length === 2, 'reset to automatic')
+      assert.deepStrictEqual(system.calls.filter(c => c[0] === 'rename'), [['rename', '@0', 'camera'], ['rename', '@0', '']])
+    })
+
+    it('ignores malformed rename payloads and unknown windows', async function () {
+      const socket = await attached()
+      for (const payload of [null, '@0', { id: '@0' }, { id: '@0', name: 5 }, { id: 'x', name: 'a' }, { name: 'a' }]) {
+        socket.emit('window-rename', payload)
+      }
+      socket.emit('window-rename', { id: '@9', name: 'a' })
+      await waitFor(() => socket.windowErrors.length === 1, 'unknown window')
+      assert.match(socket.windowErrors[0], /no longer exists/)
+      assert.deepStrictEqual(system.calls.filter(c => c[0] === 'rename'), [])
     })
 
     it('ignores malformed ids and windows outside the session', async function () {

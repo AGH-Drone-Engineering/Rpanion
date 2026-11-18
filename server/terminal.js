@@ -7,7 +7,7 @@
  * (destroy-unattached).
  *
  * Client to server: attach {cols, rows, start}, input (string), resize {cols, rows}, ack (bytes),
- *   window-new, window-close (id), window-select (id).
+ *   window-new, window-close (id), window-select (id), window-rename {id, name}.
  * Server to client: state {state, message?}, output (binary), exit {code},
  *   windows [{id, index, name, active}] (on change), window-error {message}.
  * Input is never logged.
@@ -21,6 +21,7 @@ function attachCommand (sessionName) {
 
 const MAX_CLIENTS = 4
 const MAX_WINDOWS = 8
+const MAX_TAB_NAME = 32
 // tmux has no change notifications for a client that is not attached through it
 const WINDOWS_POLL_MS = 1000
 // First listing after the spawn: the tmux client needs a moment to create its session
@@ -286,6 +287,20 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
       })
     })
 
+    // Empty name: back to automatic naming
+    socket.on('window-rename', (payload) => {
+      const id = payload?.id
+      const name = typeof payload?.name === 'string' ? payload.name.trim() : null
+      if (typeof id !== 'string' || !WINDOW_ID.test(id) || name === null) return
+      windowOperation(async () => {
+        if (name.length > MAX_TAB_NAME || /[\x00-\x1f\x7f]/.test(name)) {
+          throw expectedError(`Tab names are up to ${MAX_TAB_NAME} characters`)
+        }
+        await requireWindow(id)
+        await system.renameWindow(id, name)
+      })
+    })
+
     socket.on('window-select', (id) => {
       if (typeof id !== 'string' || !WINDOW_ID.test(id)) return
       windowOperation(async () => {
@@ -312,4 +327,4 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
   }
 }
 
-module.exports = { createTerminal, MAX_CLIENTS, MAX_WINDOWS, HIGH_WATER, LOW_WATER }
+module.exports = { createTerminal, MAX_CLIENTS, MAX_WINDOWS, MAX_TAB_NAME, HIGH_WATER, LOW_WATER }
