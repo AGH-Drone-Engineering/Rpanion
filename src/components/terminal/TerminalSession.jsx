@@ -10,6 +10,7 @@ import '@xterm/xterm/css/xterm.css';
 import { createTerminalApi } from '../../api/terminalApi.js';
 import { createKeyHandler } from '../../terminalKeys.js';
 import SessionStats from './SessionStats.jsx';
+import TerminalTabs from './TerminalTabs.jsx';
 
 const STATUS_POLL_MS = 2000;
 
@@ -26,6 +27,7 @@ function TerminalSession({ token }) {
   const [state, setStateValue] = useState('connecting');
   const [message, setMessage] = useState('');
   const [status, setStatus] = useState(null);
+  const [windows, setWindows] = useState([]);
   const [confirmStop, setConfirmStop] = useState(false);
   const [error, setError] = useState(null);
 
@@ -65,6 +67,7 @@ function TerminalSession({ token }) {
     });
     socket.on('connect_error', (err) => setState('unavailable', err.message));
     socket.on('disconnect', () => {
+      setWindows([]);
       if (stateRef.current === 'attached') setState('connecting');
     });
     socket.on('state', ({ state: next, message: text }) => {
@@ -82,12 +85,15 @@ function TerminalSession({ token }) {
         setState(next, text);
       }
     });
+    socket.on('windows', setWindows);
+    socket.on('window-error', ({ message: text }) => setError(text));
     socket.on('output', (data) => {
       const bytes = new Uint8Array(data);
       term.write(bytes, () => socket.emit('ack', bytes.length));
     });
     socket.on('exit', async () => {
       wantAttach.current = false;
+      setWindows([]);
       try {
         const res = await api.getStatus();
         setState(res.activeState === 'deactivating' ? 'stopping' : 'stopped');
@@ -139,6 +145,12 @@ function TerminalSession({ token }) {
     }
   };
 
+  const sendWindowCommand = (event, id) => {
+    if (!socketRef.current) return;
+    socketRef.current.emit(event, id);
+    if (termRef.current) termRef.current.focus();
+  };
+
   const attached = state === 'attached';
 
   return (
@@ -158,9 +170,17 @@ function TerminalSession({ token }) {
         <Button size="sm" className="btn mb-2" onClick={() => setConfirmStop(true)}>Stop session</Button>
       )}
       <SessionStats status={status} />
+      {attached && windows.length > 0 && (
+        <TerminalTabs
+          windows={windows}
+          onSelect={(id) => sendWindowCommand('window-select', id)}
+          onNew={() => sendWindowCommand('window-new')}
+          onClose={(id) => sendWindowCommand('window-close', id)}
+        />
+      )}
       <div
         ref={containerRef}
-        style={{ height: 'calc(100vh - 320px)', minHeight: 300, background: '#000', display: attached ? 'block' : 'none' }}
+        style={{ height: 'calc(100vh - 370px)', minHeight: 300, background: '#000', display: attached ? 'block' : 'none' }}
       />
       {attached && <p className="mt-1">Hold Shift while dragging to select text for copying.</p>}
 

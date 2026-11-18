@@ -2,7 +2,7 @@ const assert = require('assert')
 const http = require('http')
 const { Server } = require('socket.io')
 const { io: ioClient } = require('socket.io-client')
-const { createTerminal, MAX_CLIENTS, HIGH_WATER, LOW_WATER } = require('./terminal')
+const { createTerminal, MAX_CLIENTS, MAX_WINDOWS, HIGH_WATER, LOW_WATER } = require('./terminal')
 
 function fakePty () {
   const terms = []
@@ -58,8 +58,29 @@ describe('terminal relay', function () {
       activeState: 'active',
       installed: true,
       starts: 0,
+      ensures: 0,
+      calls: [],
+      windows: [{ id: '@0', index: 0, name: 'bash', active: true }],
       getActiveState: async () => ({ installed: system.installed, activeState: system.activeState }),
-      start: async () => { system.starts++; system.activeState = 'active' }
+      start: async () => { system.starts++; system.activeState = 'active' },
+      ensureMainSession: async () => { system.ensures++ },
+      listWindows: async (session) => {
+        system.calls.push(['list', session])
+        return system.windows.map(w => ({ ...w }))
+      },
+      newWindow: async (session) => {
+        system.calls.push(['new', session])
+        const next = system.windows.length ? Math.max(...system.windows.map(w => w.index)) + 1 : 0
+        system.windows.push({ id: `@${next}`, index: next, name: 'bash', active: false })
+      },
+      killWindow: async (id) => {
+        system.calls.push(['kill', id])
+        system.windows = system.windows.filter(w => w.id !== id)
+      },
+      selectWindow: async (session, id) => {
+        system.calls.push(['select', session, id])
+        system.windows.forEach(w => { w.active = w.id === id })
+      }
     }
     httpServer = http.createServer()
     io = new Server(httpServer, { cookie: false })
@@ -82,6 +103,10 @@ describe('terminal relay', function () {
     socket.states = []
     socket.outputs = []
     socket.exits = []
+    socket.windowLists = []
+    socket.windowErrors = []
+    socket.on('windows', (w) => socket.windowLists.push(w))
+    socket.on('window-error', (e) => socket.windowErrors.push(e.message))
     socket.on('state', (s) => socket.states.push(s))
     socket.on('output', (d) => socket.outputs.push(Buffer.from(d)))
     socket.on('exit', (e) => socket.exits.push(e))
@@ -92,17 +117,39 @@ describe('terminal relay', function () {
     })
   }
 
-  it('attaches to the running session as user 1000 through tmux', async function () {
+  it('attaches as user 1000 through a grouped tmux session of its own', async function () {
     const socket = await connect()
     socket.emit('attach', { cols: 100, rows: 30, start: false })
     await waitFor(() => pty.terms.length === 1, 'pty spawned')
     const term = pty.terms[0]
     assert.strictEqual(term.command, 'sudo')
-    assert.deepStrictEqual(term.args, ['-n', '-u', '#1000', '/usr/bin/tmux', '-N', '-S', '/run/rpanion-terminal/tmux.sock', 'new-session', '-A', '-s', 'main'])
+    assert.strictEqual(system.ensures, 1)
+    const name = term.args[11]
+    assert.match(name, /^web-[0-9a-f]{12}$/)
+    assert.deepStrictEqual(term.args, ['-n', '-u', '#1000', '/usr/bin/tmux', '-N', '-S', '/run/rpanion-terminal/tmux.sock', 'new-session', '-t', 'main', '-s', name, ';', 'set-option', 'destroy-unattached', 'on'])
     assert.strictEqual(term.options.cols, 100)
     assert.strictEqual(term.options.rows, 30)
     await waitFor(() => socket.states.some(s => s.state === 'attached'), 'attached state')
     assert.strictEqual(system.starts, 0)
+  })
+
+  it('gives every client its own session name', async function () {
+    const a = await connect()
+    const b = await connect()
+    a.emit('attach', { cols: 80, rows: 24, start: false })
+    b.emit('attach', { cols: 80, rows: 24, start: false })
+    await waitFor(() => pty.terms.length === 2, 'ptys spawned')
+    assert.notStrictEqual(pty.terms[0].args[11], pty.terms[1].args[11])
+  })
+
+  it('does not spawn a client when the main session cannot be created', async function () {
+    system.ensureMainSession = async () => { throw new Error('no server') }
+    const socket = await connect()
+    socket.emit('attach', { cols: 80, rows: 24, start: false })
+    await waitFor(() => socket.states.length === 1, 'state')
+    assert.strictEqual(socket.states[0].state, 'unavailable')
+    assert.match(socket.states[0].message, /no server/)
+    assert.strictEqual(pty.terms.length, 0)
   })
 
   it('does not start a stopped session unless asked to', async function () {
@@ -283,5 +330,122 @@ describe('terminal relay', function () {
     terminal.closeAll()
     await waitFor(() => !a.connected && !b.connected, 'disconnected')
     await waitFor(() => pty.terms.every(t => t.kills.length === 1), 'killed')
+  })
+
+  describe('tabs', function () {
+    async function attached () {
+      const socket = await connect()
+      socket.emit('attach', { cols: 80, rows: 24, start: false })
+      await waitFor(() => socket.windowLists.length >= 1, 'first window list')
+      return socket
+    }
+    const sessionOf = () => pty.terms[pty.terms.length - 1].args[11]
+
+    it('sends the window list of the client session and again only on change', async function () {
+      this.timeout(8000)
+      const socket = await attached()
+      assert.deepStrictEqual(socket.windowLists[0], [{ id: '@0', index: 0, name: 'bash', active: true }])
+      assert.ok(system.calls.every(c => c[0] === 'list' && c[1] === sessionOf()))
+      await wait(2300)
+      assert.strictEqual(socket.windowLists.length, 1)
+      system.windows.push({ id: '@3', index: 1, name: 'htop', active: false })
+      await waitFor(() => socket.windowLists.length === 2, 'changed list', 3000)
+      assert.strictEqual(socket.windowLists[1][1].name, 'htop')
+    })
+
+    it('does not list windows before the client is attached', async function () {
+      system.activeState = 'inactive'
+      const socket = await connect()
+      socket.emit('attach', { cols: 80, rows: 24, start: false })
+      await wait(300)
+      assert.strictEqual(socket.windowLists.length, 0)
+      assert.strictEqual(system.calls.length, 0)
+    })
+
+    it('opens a window in the client session', async function () {
+      const socket = await attached()
+      socket.emit('window-new')
+      await waitFor(() => socket.windowLists.length === 2, 'list after new')
+      assert.deepStrictEqual(system.calls.filter(c => c[0] === 'new'), [['new', sessionOf()]])
+      assert.strictEqual(socket.windowLists[1].length, 2)
+    })
+
+    it('refuses more than the maximum number of windows', async function () {
+      const socket = await attached()
+      for (let i = 0; i < MAX_WINDOWS + 2; i++) socket.emit('window-new')
+      await waitFor(() => socket.windowErrors.length === 3, 'refusals')
+      assert.strictEqual(system.windows.length, MAX_WINDOWS)
+      assert.match(socket.windowErrors[0], /At most 8 tabs/)
+      assert.strictEqual(system.calls.filter(c => c[0] === 'new').length, MAX_WINDOWS - 1)
+    })
+
+    it('closes a window but never the last one', async function () {
+      system.windows.push({ id: '@1', index: 1, name: 'bash', active: false })
+      const socket = await attached()
+      socket.emit('window-close', '@1')
+      await waitFor(() => system.windows.length === 1, 'window closed')
+      socket.emit('window-close', '@0')
+      await waitFor(() => socket.windowErrors.length === 1, 'refusal')
+      assert.match(socket.windowErrors[0], /last tab/)
+      assert.deepStrictEqual(system.calls.filter(c => c[0] === 'kill'), [['kill', '@1']])
+    })
+
+    it('selects a window in the client session only', async function () {
+      system.windows.push({ id: '@1', index: 1, name: 'bash', active: false })
+      const socket = await attached()
+      socket.emit('window-select', '@1')
+      await waitFor(() => socket.windowLists.length === 2, 'list after select')
+      assert.deepStrictEqual(system.calls.filter(c => c[0] === 'select'), [['select', sessionOf(), '@1']])
+      assert.deepStrictEqual(socket.windowLists[1].map(w => w.active), [false, true])
+    })
+
+    it('ignores malformed ids and windows outside the session', async function () {
+      const socket = await attached()
+      for (const id of ['1', '@', '@1x', '@1; kill-server', '-t', 5, null, undefined, { id: '@0' }, '@0\n']) {
+        socket.emit('window-close', id)
+        socket.emit('window-select', id)
+      }
+      socket.emit('window-close', '@9')
+      socket.emit('window-select', '@9')
+      await waitFor(() => socket.windowErrors.length === 2, 'errors for unknown windows')
+      assert.match(socket.windowErrors[0], /no longer exists/)
+      assert.deepStrictEqual(system.calls.filter(c => c[0] !== 'list'), [])
+    })
+
+    it('reports a failing tmux call without dropping the connection', async function () {
+      const socket = await attached()
+      system.newWindow = async () => { throw new Error('sudo: a password is required') }
+      socket.emit('window-new')
+      await waitFor(() => socket.windowErrors.length === 1, 'error')
+      assert.match(socket.windowErrors[0], /password/)
+      assert.ok(socket.connected)
+    })
+
+    it('ignores window operations before attach', async function () {
+      const socket = await connect()
+      socket.emit('window-new')
+      socket.emit('window-close', '@0')
+      socket.emit('window-select', '@0')
+      await wait(100)
+      assert.deepStrictEqual(system.calls, [])
+    })
+
+    it('stops polling after the tmux client exits or the socket closes', async function () {
+      this.timeout(8000)
+      const socket = await attached()
+      pty.terms[0].emitExit(0)
+      await waitFor(() => socket.exits.length === 1, 'exit')
+      const count = system.calls.length
+      await wait(1300)
+      assert.strictEqual(system.calls.length, count)
+
+      const other = await attached()
+      other.close()
+      await waitFor(() => pty.terms[1].kills.length === 1, 'kill')
+      await wait(100)
+      const after = system.calls.length
+      await wait(1300)
+      assert.strictEqual(system.calls.length, after)
+    })
   })
 })

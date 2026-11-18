@@ -21,7 +21,7 @@ rpanion ALL=(ALL) NOPASSWD: \
   /usr/local/sbin/rpanion-system sshpassword, \
   /usr/bin/systemctl start rpanion-terminal, \
   /usr/bin/systemctl stop --no-block rpanion-terminal
-rpanion ALL=(#1000) NOPASSWD: /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock new-session -A -s main
+rpanion ALL=(#1000) NOPASSWD: /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock *
 SUDOERS
 if sudo visudo -cf "$SUDOERS_TMP" >/dev/null; then
     sudo install -o root -g root -m 440 "$SUDOERS_TMP" /etc/sudoers.d/rpanion-system

@@ -197,4 +197,87 @@ describe('TerminalSession', () => {
     await act(async () => {})
     expect(div.textContent).toContain('Memory: unavailable')
   })
+
+  describe('tabs', () => {
+    const win = (n, active = false) => ({ id: `@${n}`, index: n, name: n === 1 ? 'htop' : 'bash', active })
+    const tabs = (div) => [...div.querySelectorAll('[role=tab]')]
+    const emitted = (socket, event) => socket.emitted.filter(([name]) => name === event).map(([, payload]) => payload)
+
+    // Lets the modal fade-out finish before the next test clears the document
+    const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 400)) })
+
+    async function attachedWith (windows) {
+      const div = await render()
+      const socket = fakes.sockets[0]
+      await act(async () => { socket.fire('state', { state: 'attached' }) })
+      if (windows) await act(async () => { socket.fire('windows', windows) })
+      return { div, socket }
+    }
+
+    test('shows no tab bar before the window list arrives or while not attached', async () => {
+      const div = await render()
+      const socket = fakes.sockets[0]
+      await act(async () => { socket.fire('windows', [win(0, true)]) })
+      expect(tabs(div)).toHaveLength(0)
+      await act(async () => { socket.fire('state', { state: 'attached' }) })
+      expect(tabs(div)).toHaveLength(1)
+    })
+
+    test('lists the windows and marks the active one', async () => {
+      const { div } = await attachedWith([win(0), win(1, true)])
+      expect(tabs(div).map(t => t.textContent.replace('\u00d7', ''))).toEqual(['1 bash', '2 htop'])
+      expect(tabs(div).map(t => t.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+      expect(tabs(div)[1].className).toContain('active')
+    })
+
+    test('switches tabs and opens a new one', async () => {
+      const { div, socket } = await attachedWith([win(0, true), win(1)])
+      await act(async () => { tabs(div)[1].click() })
+      expect(emitted(socket, 'window-select')).toEqual(['@1'])
+      await act(async () => { div.querySelector('[aria-label="New tab"]').click() })
+      expect(emitted(socket, 'window-new')).toHaveLength(1)
+    })
+
+    test('closing a tab needs confirmation and does not switch to it', async () => {
+      const { div, socket } = await attachedWith([win(0, true), win(1)])
+      await act(async () => { div.querySelector('[aria-label="Close tab 2"]').click() })
+      expect(emitted(socket, 'window-close')).toEqual([])
+      expect(emitted(socket, 'window-select')).toEqual([])
+      const cancel = [...document.querySelectorAll('.modal button')].find(b => b.textContent === 'Cancel')
+      await act(async () => { cancel.click() })
+      await settle()
+      expect(emitted(socket, 'window-close')).toEqual([])
+      await act(async () => { div.querySelector('[aria-label="Close tab 2"]').click() })
+      const confirm = [...document.querySelectorAll('.modal button')].find(b => b.textContent === 'Close tab')
+      await act(async () => { confirm.click() })
+      await settle()
+      expect(emitted(socket, 'window-close')).toEqual(['@1'])
+    })
+
+    test('hides the close button on the last tab', async () => {
+      const { div } = await attachedWith([win(0, true)])
+      expect(div.querySelector('[aria-label^="Close tab"]')).toBe(null)
+    })
+
+    test('disables the new tab button at the limit', async () => {
+      const windows = Array.from({ length: 8 }, (_, i) => win(i, i === 0))
+      const { div } = await attachedWith(windows)
+      expect(div.querySelector('[aria-label="New tab"]').disabled).toBe(true)
+      await act(async () => { fakes.sockets[0].fire('windows', windows.slice(0, 7)) })
+      expect(div.querySelector('[aria-label="New tab"]').disabled).toBe(false)
+    })
+
+    test('shows window errors from the server', async () => {
+      const { div, socket } = await attachedWith([win(0, true)])
+      await act(async () => { socket.fire('window-error', { message: 'At most 8 tabs' }) })
+      expect(div.textContent).toContain('At most 8 tabs')
+    })
+
+    test('removes the tab bar when the session ends', async () => {
+      const { div, socket } = await attachedWith([win(0, true), win(1)])
+      status = { ...STATUS, activeState: 'inactive' }
+      await act(async () => { socket.fire('exit', { code: 0 }) })
+      expect(tabs(div)).toHaveLength(0)
+    })
+  })
 })

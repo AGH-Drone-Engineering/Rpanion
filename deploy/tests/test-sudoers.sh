@@ -27,7 +27,7 @@ else
     echo "ok   - rpanion-system limited to explicit subcommands"
 fi
 
-for rule in '/usr/sbin/ip addr add \* dev \*' '/usr/sbin/ip addr del \* dev \*' '/usr/bin/nmcli \*' '/usr/sbin/pppd \*' '/usr/local/sbin/rpanion-system hostname \*' '/usr/local/sbin/rpanion-system sshpassword' '/usr/bin/systemctl start rpanion-terminal' '/usr/bin/systemctl stop --no-block rpanion-terminal' '\(#1000\) NOPASSWD: /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock new-session -A -s main$'; do
+for rule in '/usr/sbin/ip addr add \* dev \*' '/usr/sbin/ip addr del \* dev \*' '/usr/bin/nmcli \*' '/usr/sbin/pppd \*' '/usr/local/sbin/rpanion-system hostname \*' '/usr/local/sbin/rpanion-system sshpassword' '/usr/bin/systemctl start rpanion-terminal' '/usr/bin/systemctl stop --no-block rpanion-terminal' '\(#1000\) NOPASSWD: /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock \*$'; do
     if grep -Eq "$rule" "$TMP/sudoers"; then
         echo "ok   - rule present: $rule"
     else
@@ -49,7 +49,7 @@ if sudo visudo -cf "$TMP/sudoers-configure" >/dev/null; then
 else
     echo "FAIL - configure_system.sh sudoers syntax invalid"; FAILS=$((FAILS + 1))
 fi
-for rule in 'systemctl start rpanion-terminal' 'systemctl stop --no-block rpanion-terminal' '\(#1000\) NOPASSWD: /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock new-session -A -s main$'; do
+for rule in 'systemctl start rpanion-terminal' 'systemctl stop --no-block rpanion-terminal' '\(#1000\) NOPASSWD: /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock \*$'; do
     if grep -Eq "$rule" "$TMP/sudoers-configure"; then
         echo "ok   - configure_system.sh rule present: $rule"
     else

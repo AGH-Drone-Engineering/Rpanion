@@ -217,6 +217,11 @@ Rpanion-server; reconnecting attaches to the running session. It is started with
 with "Stop session" (or ``sudo systemctl stop rpanion-terminal``). The terminal needs the access control of the
 Web GUI and is refused when ``DISABLE_AUTH=1``.
 
+Tabs ("+" opens one, "×" closes it, at most 8) are the windows of the tmux session ``main`` and are shared by all
+browsers and SSH clients. Each browser has its own tmux session in the group ``main`` (named ``web-<id>``, removed
+when the browser disconnects), so every browser keeps its own selected tab. The last tab cannot be closed; ending
+its shell with ``exit`` ends the session, and the next connection starts a new one.
+
 The same session can be used over SSH: ``tmux -S /run/rpanion-terminal/tmux.sock attach``. If tmux is updated with
 apt while a session runs, a new client may not connect to the old server; "Stop session" fixes that.
 

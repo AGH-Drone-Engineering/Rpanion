@@ -56,6 +56,23 @@ check "shell only: exits 0" "$RC" 0
 [ "$ELAPSED" -le 1 ] && ok "shell only: no wait" || fail "shell only: no wait (${ELAPSED}s)"
 kill -0 "$MAIN_PID" 2>/dev/null && ok "tmux server not signaled" || fail "tmux server not signaled"
 
+# Several windows: list-panes -a prints the shell of every window, none of them is waited for
+start_shell; SHELL2_PID=$SHELL_PID
+start_shell; SHELL3_PID=$SHELL_PID
+echo "$MAIN_PID $SHELL2_PID $SHELL3_PID" | tr ' ' '\n' > "$TMP/procs"
+echo "$SHELL2_PID $SHELL3_PID" | tr ' ' '\n' > "$TMP/panes"
+run_stop
+check "several windows: exits 0" "$RC" 0
+[ "$ELAPSED" -le 1 ] && ok "several windows: no wait" || fail "several windows: no wait (${ELAPSED}s)"
+
+# A worker in the second window is waited for while the shells of both windows are not
+start_worker 2 b
+echo "$MAIN_PID $SHELL2_PID $SHELL3_PID $WORKER_PID" | tr ' ' '\n' > "$TMP/procs"
+run_stop 6
+[ -f "$TMP/worker-b" ] && ok "several windows: worker in a later window received SIGTERM" || fail "several windows: worker in a later window received SIGTERM"
+[ "$ELAPSED" -ge 2 ] && [ "$ELAPSED" -le 4 ] && ok "several windows: waited for the worker (${ELAPSED}s)" || fail "several windows: waited for the worker (${ELAPSED}s)"
+echo "$SHELL_PID" > "$TMP/panes"
+
 # Worker with slow cleanup: waited for, got SIGTERM
 start_worker 2 a
 echo "$MAIN_PID $SHELL_PID $WORKER_PID" | tr ' ' '\n' > "$TMP/procs"

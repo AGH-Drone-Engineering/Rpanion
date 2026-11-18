@@ -1,16 +1,30 @@
 /*
  * Web terminal relay on the socket.io namespace /terminal. Each client gets its own pty running a
- * tmux client attached to the session "main" of rpanion-terminal.service (tmux server as user 1000),
- * so the session outlives the browser and this process.
+ * tmux client in rpanion-terminal.service (tmux server as user 1000), so the programs outlive the
+ * browser and this process. Tabs are the windows of the session "main", shared with SSH and other
+ * browsers. Every client attaches to its own session of the group "main" (web-<random>), which has
+ * the same windows but its own active one; tmux removes it when the client detaches
+ * (destroy-unattached).
  *
- * Client to server: attach {cols, rows, start}, input (string), resize {cols, rows}, ack (bytes).
- * Server to client: state {state, message?}, output (binary), exit {code}.
+ * Client to server: attach {cols, rows, start}, input (string), resize {cols, rows}, ack (bytes),
+ *   window-new, window-close (id), window-select (id).
+ * Server to client: state {state, message?}, output (binary), exit {code},
+ *   windows [{id, index, name, active}] (on change), window-error {message}.
  * Input is never logged.
  */
-const SOCKET = '/run/rpanion-terminal/tmux.sock'
-const ATTACH_COMMAND = ['sudo', ['-n', '-u', '#1000', '/usr/bin/tmux', '-N', '-S', SOCKET, 'new-session', '-A', '-s', 'main']]
+const crypto = require('crypto')
+const { TMUX_SUDO, MAIN_SESSION, WINDOW_ID } = require('./terminalSystem')
+
+function attachCommand (sessionName) {
+  return ['sudo', ['-n', ...TMUX_SUDO, 'new-session', '-t', MAIN_SESSION, '-s', sessionName, ';', 'set-option', 'destroy-unattached', 'on']]
+}
 
 const MAX_CLIENTS = 4
+const MAX_WINDOWS = 8
+// tmux has no change notifications for a client that is not attached through it
+const WINDOWS_POLL_MS = 1000
+// First listing after the spawn: the tmux client needs a moment to create its session
+const WINDOWS_FIRST_POLL_MS = 150
 const FLUSH_INTERVAL_MS = 30
 // Unacknowledged output above HIGH_WATER pauses the pty until the client has consumed down to LOW_WATER
 const HIGH_WATER = 256 * 1024
@@ -54,7 +68,21 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
   })
 
   nsp.on('connection', (socket) => {
-    const session = { socket, term: null, chunks: [], flushTimer: null, unacked: 0, paused: false, expiryTimer: null, closing: false }
+    const session = {
+      socket,
+      name: null,
+      term: null,
+      chunks: [],
+      flushTimer: null,
+      unacked: 0,
+      paused: false,
+      expiryTimer: null,
+      closing: false,
+      windowsKey: null,
+      pollTimer: null,
+      refreshing: false,
+      queue: Promise.resolve()
+    }
     sessions.add(session)
 
     // JWTs expire after 1 h; an open socket must not outlive its token
@@ -80,9 +108,62 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
       }
     }
 
+    const stopPolling = () => {
+      clearTimeout(session.pollTimer)
+      session.pollTimer = null
+      session.windowsKey = null
+    }
+
+    async function refreshWindows () {
+      if (!session.term || session.refreshing) return
+      session.refreshing = true
+      try {
+        const windows = await system.listWindows(session.name)
+        const key = JSON.stringify(windows)
+        if (session.term && key !== session.windowsKey) {
+          session.windowsKey = key
+          socket.emit('windows', windows)
+        }
+      } catch (err) {
+        // The next poll retries; the end of the session is reported by the pty exit
+      } finally {
+        session.refreshing = false
+      }
+    }
+
+    const schedulePoll = (delay) => {
+      session.pollTimer = setTimeout(async () => {
+        await refreshWindows()
+        if (session.term) schedulePoll(WINDOWS_POLL_MS)
+      }, delay)
+    }
+
+    // Window operations of one client run in order so that the limit checks see each other's result
+    const windowOperation = (operation) => {
+      session.queue = session.queue.then(async () => {
+        if (!session.term) return
+        try {
+          await operation()
+        } catch (err) {
+          if (!err.expected) console.error(`Terminal window operation failed: ${err.message || err}`)
+          socket.emit('window-error', { message: err.message || String(err) })
+        }
+        await refreshWindows()
+      })
+    }
+
+    const expectedError = (message) => Object.assign(new Error(message), { expected: true })
+
+    async function requireWindow (id) {
+      const windows = await system.listWindows(session.name)
+      if (!windows.some(w => w.id === id)) throw expectedError('The tab no longer exists')
+      return windows
+    }
+
     const release = () => {
       clearTimeout(session.flushTimer)
       clearTimeout(session.expiryTimer)
+      stopPolling()
       session.flushTimer = null
       session.chunks = []
       sessions.delete(session)
@@ -126,9 +207,11 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
           }
           await system.start()
         }
+        await system.ensureMainSession()
         if (session.closing) return
 
-        const [command, args] = ATTACH_COMMAND
+        session.name = `web-${crypto.randomBytes(6).toString('hex')}`
+        const [command, args] = attachCommand(session.name)
         const term = ptyModule.spawn(command, args, {
           name: 'xterm-256color',
           cols,
@@ -150,11 +233,13 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
           clearTimeout(session.flushTimer)
           flush()
           session.term = null
+          stopPolling()
           session.unacked = 0
           session.paused = false
           socket.emit('exit', { code: exitCode })
         })
         socket.emit('state', { state: 'attached' })
+        schedulePoll(WINDOWS_FIRST_POLL_MS)
       } catch (err) {
         console.error(`Terminal attach failed: ${err.message || err}`)
         socket.emit('state', { state: 'unavailable', message: err.message || String(err) })
@@ -185,6 +270,30 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
       }
     })
 
+    socket.on('window-new', () => windowOperation(async () => {
+      const windows = await system.listWindows(session.name)
+      if (windows.length >= MAX_WINDOWS) throw expectedError(`At most ${MAX_WINDOWS} tabs`)
+      await system.newWindow(session.name)
+    }))
+
+    socket.on('window-close', (id) => {
+      if (typeof id !== 'string' || !WINDOW_ID.test(id)) return
+      windowOperation(async () => {
+        const windows = await requireWindow(id)
+        // Closing the last window would end the session and every client with it
+        if (windows.length <= 1) throw expectedError('The last tab cannot be closed')
+        await system.killWindow(id)
+      })
+    })
+
+    socket.on('window-select', (id) => {
+      if (typeof id !== 'string' || !WINDOW_ID.test(id)) return
+      windowOperation(async () => {
+        await requireWindow(id)
+        await system.selectWindow(session.name, id)
+      })
+    })
+
     socket.on('disconnect', () => {
       session.closing = true
       release()
@@ -203,4 +312,4 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
   }
 }
 
-module.exports = { createTerminal, MAX_CLIENTS, HIGH_WATER, LOW_WATER }
+module.exports = { createTerminal, MAX_CLIENTS, MAX_WINDOWS, HIGH_WATER, LOW_WATER }

@@ -9,6 +9,14 @@ const os = require('os')
 
 const UNIT = 'rpanion-terminal'
 const SYSTEMCTL = '/usr/bin/systemctl'
+const TMUX = '/usr/bin/tmux'
+const SOCKET = '/run/rpanion-terminal/tmux.sock'
+// Fixed prefix of every tmux call; matches the sudoers rule. -N: a missing unit must not start a
+// tmux server outside it.
+const TMUX_SUDO = ['-u', '#1000', TMUX, '-N', '-S', SOCKET]
+const MAIN_SESSION = 'main'
+const SESSION_NAME = /^web-[0-9a-f]{12}$/
+const WINDOW_ID = /^@\d+$/
 const SLICE_DIR = '/sys/fs/cgroup/user.slice/user-1000.slice'
 const PATHS = {
   controllers: '/sys/fs/cgroup/cgroup.controllers',
@@ -22,6 +30,29 @@ function parseKeyValues (text, separator) {
     if (match) result[match[1]] = match[2].trim()
   }
   return result
+}
+
+function checkSession (name) {
+  if (!SESSION_NAME.test(name)) throw new Error('Invalid session name')
+}
+
+function checkWindow (id) {
+  if (!WINDOW_ID.test(id)) throw new Error('Invalid window id')
+}
+
+// Window names are set by programs; keep one printable line
+function cleanName (name) {
+  return name.replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, 40)
+}
+
+function parseWindows (text) {
+  const windows = []
+  for (const line of (text || '').split('\n')) {
+    const [id, index, active, ...name] = line.split('\t')
+    if (!WINDOW_ID.test(id) || !/^\d+$/.test(index)) continue
+    windows.push({ id, index: Number(index), name: cleanName(name.join('\t')), active: active === '1' })
+  }
+  return windows.sort((a, b) => a.index - b.index)
 }
 
 function createTerminalSystem ({ execFile = childProcess.execFile, readFile = fs.promises.readFile, paths = {} } = {}) {
@@ -38,6 +69,8 @@ function createTerminalSystem ({ execFile = childProcess.execFile, readFile = fs
 
   // -n: fail instead of waiting for a password when the sudoers rule is missing
   const sudo = (args) => run('sudo', ['-n', ...args])
+
+  const tmux = (args) => sudo([...TMUX_SUDO, ...args])
 
   const read = (file) => readFile(file, 'utf8').catch(() => null)
 
@@ -68,6 +101,39 @@ function createTerminalSystem ({ execFile = childProcess.execFile, readFile = fs
       await sudo([SYSTEMCTL, 'stop', '--no-block', UNIT])
     },
 
+    // tmux with -N needs a running server; "main" is gone after the last window exited
+    async ensureMainSession () {
+      try {
+        await tmux(['new-session', '-d', '-s', MAIN_SESSION, '-c', '~'])
+      } catch (err) {
+        // Another client created it first
+        if (!/duplicate session/.test(err.message)) throw err
+      }
+    },
+
+    // Windows are shared by the sessions of the group "main"; "active" is per session
+    async listWindows (session) {
+      checkSession(session)
+      const format = ['#{window_id}', '#{window_index}', '#{window_active}', '#{window_name}'].join('\t')
+      return parseWindows(await tmux(['list-windows', '-t', `${session}:`, '-F', format]))
+    },
+
+    async newWindow (session) {
+      checkSession(session)
+      await tmux(['new-window', '-t', `${session}:`, '-c', '~'])
+    },
+
+    async killWindow (id) {
+      checkWindow(id)
+      await tmux(['kill-window', '-t', id])
+    },
+
+    async selectWindow (session, id) {
+      checkSession(session)
+      checkWindow(id)
+      await tmux(['select-window', '-t', `${session}:${id}`])
+    },
+
     async getStats () {
       const controllers = await read(p.controllers)
       const stat = parseKeyValues(await read(`${p.sliceDir}/memory.stat`), ' ')
@@ -89,4 +155,4 @@ function createTerminalSystem ({ execFile = childProcess.execFile, readFile = fs
   }
 }
 
-module.exports = { createTerminalSystem, UNIT }
+module.exports = { createTerminalSystem, UNIT, TMUX_SUDO, MAIN_SESSION, SESSION_NAME, WINDOW_ID }
