@@ -39,6 +39,10 @@ T new-session -d -t main -s web-b
 sleep 0.5
 check_after=$(count)
 [ "$check_after" -eq 1 ] && ok "grouped sessions share the pane pipe ($check_after file)" || fail "grouped sessions share the pane pipe ($check_after files)"
+for s in web-c web-d web-e; do T new-session -d -t main -s "$s"; done
+[ "$(T list-panes -a -F '#{pane_pipe}' | sort -u)" = 1 ] && ok "pipe stays open after more grouped sessions" || fail "pipe stays open after more grouped sessions"
+T send-keys -t main:0 'echo after-grouped-text' Enter
+wait_for 'grep -q after-grouped-text "$LOGDIR"/*.log' && ok "text after grouped sessions is written" || fail "text after grouped sessions is written"
 
 T new-window -t web-a: 'echo second-window-text; sleep 60'
 wait_for '[ "$(count)" -ge 2 ]' && ok "new window creates a log file" || fail "new window creates a log file"

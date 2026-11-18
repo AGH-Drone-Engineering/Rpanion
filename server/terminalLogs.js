@@ -117,6 +117,7 @@ function createTerminalLogs ({ dir = logpaths.terminalLogDir, listPanes = async 
           result.deleted++
         }
       }
+      console.log(`Cleared terminal: deleted ${result.deleted}, kept ${result.skipped}`)
       return result
     },
 
