@@ -1,4 +1,6 @@
 const spawn = require('child_process').spawn
+const fs = require('fs')
+const { EventEmitter } = require('events')
 const path = require('path')
 const appRoot = require('app-root-path')
 const logpaths = require('./paths.js')
@@ -13,6 +15,7 @@ class logConverter {
     this.pythonFolder = path.join(appRoot.toString(), 'python')
     this.pythonScript = path.join(this.pythonFolder, 'tlog2kmz.py')
 
+    this.eventEmitter = new EventEmitter()
     this.converterPid = null
     this.tlogfilename = null
 
@@ -28,6 +31,7 @@ class logConverter {
         }
         try {
           console.log('Doing log conversion...')
+          const before = this.kmzSnapshot()
           const pythonPath = logpaths.getPythonPath()
           this.converterPid = spawn(pythonPath, [this.pythonScript, logpaths.tlogDir, logpaths.kmzDir])
           this.converterPid.stdout.on('data', (data) => {
@@ -38,12 +42,23 @@ class logConverter {
           })
           this.converterPid.on('close', (code) => {
             console.log(`Log converter exited with code ${code}`)
+            if (this.kmzSnapshot() !== before) {
+              this.eventEmitter.emit('logschanged', 'kmz')
+            }
           })
         } catch (error) {
           console.log(error)
         }
       }
     }, this.options.interval * 1000)
+  }
+
+  kmzSnapshot () {
+    try {
+      return fs.readdirSync(logpaths.kmzDir).sort().join('\n')
+    } catch (e) {
+      return ''
+    }
   }
 
   quitting () {

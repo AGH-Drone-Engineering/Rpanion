@@ -354,6 +354,7 @@ class FCDetails {
         const match = /^(TLOG|BIN): (.+)$/.exec(line.trim())
         if (match && this.dflogger === proc) {
           this.activeLogs[match[1].toLowerCase()] = match[2]
+          this.eventEmitter.emit('logschanged', match[1] === 'TLOG' ? 'telemetry' : 'bin')
         }
       })
     })

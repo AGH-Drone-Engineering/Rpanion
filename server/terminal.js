@@ -84,6 +84,7 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
       expiryTimer: null,
       closing: false,
       windowsKey: null,
+      idsKey: null,
       pollTimer: null,
       refreshing: false,
       queue: Promise.resolve()
@@ -117,6 +118,7 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
       clearTimeout(session.pollTimer)
       session.pollTimer = null
       session.windowsKey = null
+      session.idsKey = null
     }
 
     async function refreshWindows () {
@@ -125,6 +127,11 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
       try {
         const windows = await system.listWindows(session.name)
         const key = JSON.stringify(windows)
+        const idsKey = windows.map(w => w.id).join(',')
+        if (session.term && idsKey !== session.idsKey) {
+          session.idsKey = idsKey
+          io.sockets.emit('logs:changed', { type: 'terminal' })
+        }
         if (session.term && key !== session.windowsKey) {
           session.windowsKey = key
           socket.emit('windows', windows)

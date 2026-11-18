@@ -405,6 +405,22 @@ describe('terminal relay', function () {
       assert.strictEqual(socket.windowLists[1][1].name, 'htop')
     })
 
+    it('emits logs:changed on the default namespace when windows are opened and closed', async function () {
+      const events = []
+      const watcher = ioClient(`http://127.0.0.1:${port}/`, { forceNew: true, transports: ['websocket'], reconnection: false })
+      clients.push(watcher)
+      watcher.on('logs:changed', (e) => events.push(e))
+      await waitFor(() => watcher.connected, 'watcher connected')
+      const socket = await attached()
+      await waitFor(() => events.length >= 1, 'event for first list')
+      const before = events.length
+      socket.emit('window-new')
+      await waitFor(() => events.length === before + 1, 'event after new')
+      socket.emit('window-close', '@1')
+      await waitFor(() => events.length === before + 2, 'event after close')
+      assert.ok(events.every(e => e.type === 'terminal'))
+    })
+
     it('does not list windows before the client is attached', async function () {
       system.activeState = 'inactive'
       const socket = await connect()

@@ -710,11 +710,7 @@ class videoStream {
     }
   }
 
-  startPhotoMode(callback) {
-    if (!this.stillSettings) return callback(new Error('No still settings provided'));
-
-    const dest = this.toAbsolutePath(this.stillSettings.mediaDestination);
-
+  buildPhotoArgs() {
     const args = [
       '-u', // force the stdout and stderr streams to be unbuffered
       './python/photovideo.py',
@@ -723,6 +719,16 @@ class videoStream {
     if (this.stillSettings.device) args.push('--device=' + this.stillSettings.device);
     if (this.stillSettings.width) args.push('--width=' + this.stillSettings.width);
     if (this.stillSettings.height) args.push('--height=' + this.stillSettings.height);
+    if (this.stillSettings.format) args.push('--format=' + this.stillSettings.format);
+    return args;
+  }
+
+  startPhotoMode(callback) {
+    if (!this.stillSettings) return callback(new Error('No still settings provided'));
+
+    const dest = this.toAbsolutePath(this.stillSettings.mediaDestination);
+
+    const args = this.buildPhotoArgs();
     if (dest) {
       if (!this.ensureMediaDirectoryWritable(dest)) {
         return callback(new Error(`Media Destination is not writable: ${dest}`));
@@ -744,15 +750,8 @@ class videoStream {
     }
   }
 
-  startVideoMode(callback) {
-    if (!this.videoRecordSettings) return callback(new Error('No video settings provided'));
-
-    const dest = this.toAbsolutePath(this.videoRecordSettings.mediaDestination);
-
-    // Convert bitrate from kbps to bps Picamera2
-    const bitrateBps = this.videoRecordSettings.bitrate * 1000;
-
-    const args = [
+  buildVideoArgs(bitrateBps) {
+    return [
       '-u', // force the stdout and stderr streams to be unbuffered
       './python/photovideo.py',
       '--mode=video',
@@ -764,6 +763,17 @@ class videoStream {
       '--rotation=' + this.videoRecordSettings.rotation,
       '--format=' + this.videoRecordSettings.format
     ];
+  }
+
+  startVideoMode(callback) {
+    if (!this.videoRecordSettings) return callback(new Error('No video settings provided'));
+
+    const dest = this.toAbsolutePath(this.videoRecordSettings.mediaDestination);
+
+    // Convert bitrate from kbps to bps Picamera2
+    const bitrateBps = this.videoRecordSettings.bitrate * 1000;
+
+    const args = this.buildVideoArgs(bitrateBps);
 
     if (dest) {
       if (!this.ensureMediaDirectoryWritable(dest)) {
@@ -853,14 +863,17 @@ class videoStream {
         }
       }
 
-      // find file paths printed by photovideo.py
-      const re = /to\s+(\S+\.(?:jpg|jpeg|png|h264|mp4|avi))/ig;
+      // "Photo saved to", "recording started to" and "Recording saved to" lines
+      const re = /(?:photo saved|recording started|recording saved)\s+to\s+(\S+\.(?:jpg|jpeg|png|h264|mp4|avi))/ig;
       let m;
       while ((m = re.exec(chunk)) !== null) {
         const filepath = m[1];
         this.lastSavedFile = filepath;             // store for API read-after-post fallback
         this.eventEmitter.emit('filesaved', filepath); // internal event
         console.log('Detected saved file:', filepath);
+      }
+      if (/photo saved to|recording (?:started|stopped|saved)/i.test(chunk)) {
+        this.eventEmitter.emit('logschanged', 'media');
       }
 
       // Print chunk for debugging immediately

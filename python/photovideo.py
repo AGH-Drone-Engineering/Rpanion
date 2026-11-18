@@ -5,6 +5,7 @@ import argparse
 import inspect
 import time, signal, os, sys, shutil, traceback
 import json
+from v4l2_camera import fourcc_from_format, open_v4l2, ensure_dir
 
 def is_jetson():
     """Returns True if running on an NVIDIA Jetson device."""
@@ -112,6 +113,7 @@ if captureMode == "photo":
 GOT_SIGUSR1 = False
 GOT_SIGTERM = False
 VIDEO_ACTIVE = False
+recording_path = None
 
 def handle_sigusr1(signum, stack):
     global GOT_SIGUSR1
@@ -276,9 +278,7 @@ if captureMode == "photo":
         time.sleep(2)
         print(f"Camera is ready in Jetson V4L2 Argus photo mode. Capturing {args.vidWidth}x{args.vidHeight}")
     else:
-        v4l2_cam = cv2.VideoCapture(args.captureDevicePath, cv2.CAP_V4L2)
-        v4l2_cam.set(cv2.CAP_PROP_FRAME_WIDTH, args.vidWidth)
-        v4l2_cam.set(cv2.CAP_PROP_FRAME_HEIGHT, args.vidHeight)
+        v4l2_cam = open_v4l2(cv2, args.captureDevicePath, fourcc_from_format(args.vidFormat), args.vidWidth, args.vidHeight)
         if not v4l2_cam.isOpened():
             sys.exit(f"V4L2 camera at {args.captureDevicePath} failed to open.")
         time.sleep(2)
@@ -339,13 +339,9 @@ elif captureMode == "video":
         time.sleep(2)
         print(f"Camera is ready in Jetson V4L2 Argus video mode. Capturing {args.vidWidth}x{args.vidHeight}")
     else:
-        v4l2_cam = cv2.VideoCapture(args.captureDevicePath, cv2.CAP_V4L2)
+        v4l2_cam = open_v4l2(cv2, args.captureDevicePath, fourcc_from_format(args.vidFormat), args.vidWidth, args.vidHeight, args.vidFps)
         if not v4l2_cam.isOpened():
             sys.exit(f"V4L2 camera at {args.captureDevicePath} failed to open.")
-
-        v4l2_cam.set(cv2.CAP_PROP_FRAME_WIDTH, args.vidWidth)
-        v4l2_cam.set(cv2.CAP_PROP_FRAME_HEIGHT, args.vidHeight)
-        v4l2_cam.set(cv2.CAP_PROP_FPS, args.vidFps)
 
         # Check if the actual width, height, and FPS were written correctly
         actual_v4l2_width = int(v4l2_cam.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -368,24 +364,27 @@ def graceful_exit():
     sys.exit(0)
 
 def startstop_video():
-    global VIDEO_ACTIVE, v4l2_writer
+    global VIDEO_ACTIVE, v4l2_writer, recording_path
     if use_picamera:
         if VIDEO_ACTIVE:
             picam2_vid.stop_recording()
             VIDEO_ACTIVE = False
-            print("Picamera2 recording stopped.")
+            print("Picamera2 recording stopped.", flush=True)
+            print(f"Recording saved to {recording_path}", flush=True)
         else:
             filepath = os.path.join(mediaPath, time.strftime("RPN%Y%m%d_%H%M%S.h264"))
             picam2_vid.start_recording(encoder, filepath)
             VIDEO_ACTIVE = True
-            print(f"Picamera2 recording started to {filepath}")
+            recording_path = filepath
+            print(f"Picamera2 recording started to {filepath}", flush=True)
     else: # V4L2
         if VIDEO_ACTIVE:
             VIDEO_ACTIVE = False
             if v4l2_writer:
                 v4l2_writer.release()
                 v4l2_writer = None
-                print("V4L2 recording stopped.")
+                print("V4L2 recording stopped.", flush=True)
+                print(f"Recording saved to {recording_path}", flush=True)
         else:
             for _ in range(5): v4l2_cam.read() # Flush buffer
             filepath = os.path.join(mediaPath, time.strftime("RPN%Y%m%d_%H%M%S.avi"))
@@ -393,7 +392,8 @@ def startstop_video():
             v4l2_writer = cv2.VideoWriter(filepath, fourcc, actual_v4l2_fps, (actual_v4l2_width, actual_v4l2_height))
             if v4l2_writer.isOpened():
                 VIDEO_ACTIVE = True
-                print(f"V4L2 recording started to {filepath}")
+                recording_path = filepath
+                print(f"V4L2 recording started to {filepath}", flush=True)
             else:
                 print(f"Error: Could not open VideoWriter for {filepath}", file=sys.stderr)
 
@@ -407,26 +407,32 @@ if __name__ == '__main__':
             if GOT_SIGUSR1:
                 GOT_SIGUSR1 = False
 
+                starting = captureMode == 'photo' or not VIDEO_ACTIVE
+                if starting and not ensure_dir(mediaPath):
+                    continue
+
                 freeDiskSpace = shutil.disk_usage(mediaPath).free
                 if freeDiskSpace < minFreeSpace and (captureMode == 'photo' or (captureMode == 'video' and not VIDEO_ACTIVE)):
                     print(f"Free disk space is {(int)(freeDiskSpace / 10**6)} MB, which is less than the minimum of {(int)(minFreeSpace / 10**6)} MB. Action aborted.", flush=True)
                 else:
                     if captureMode == 'photo':
                         filepath = os.path.join(mediaPath, time.strftime("RPN%Y%m%d_%H%M%S.jpg"))
-                        print(f"Capturing photo to {filepath}")
+                        print(f"Capturing photo to {filepath}", flush=True)
                         if use_picamera:
                             picam2_still.capture_file(filepath)
-                            print("Photo captured.")
+                            print("Photo captured.", flush=True)
                             # Geotag the captured photo
                             geotag_image(filepath)
+                            print(f"Photo saved to {filepath}", flush=True)
                         else:
                             for _ in range(5): v4l2_cam.read()
                             ret, frame = v4l2_cam.read()
                             if ret:
                                 cv2.imwrite(filepath, frame)
-                                print("Photo captured.")
+                                print("Photo captured.", flush=True)
                                 # Geotag the captured photo
                                 geotag_image(filepath)
+                                print(f"Photo saved to {filepath}", flush=True)
                             else:
                                 print("Failed to capture frame from V4L2 camera.", file=sys.stderr)
                     elif captureMode == 'video':

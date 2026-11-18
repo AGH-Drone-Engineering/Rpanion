@@ -50,6 +50,7 @@ const createTerminalRouter = require('./routes/terminal.js')
 const { createTerminalSystem } = require('./terminalSystem.js')
 const { createTerminalLogs } = require('./terminalLogs.js')
 const { createTerminal } = require('./terminal.js')
+const { forwardLogsChanged } = require('./logsChanged.js')
 const { createOomWatch } = require('./memoryWatch.js')
 const limiter = RateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
@@ -387,6 +388,8 @@ vManager.eventEmitter.on('filesaved', (filepath) => {
     console.error('Failed to emit filesaved:', e);
   }
 });
+
+forwardLogsChanged(io, [vManager.eventEmitter, fcManager.eventEmitter, logConversion.eventEmitter])
 
 // Connecting the flight controller datastream to the logger
 // and ntrip and video

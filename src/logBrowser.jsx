@@ -1,11 +1,16 @@
 import Button from 'react-bootstrap/Button';
 import Table from 'react-bootstrap/Table';
 import Accordion from 'react-bootstrap/Accordion';
+import Modal from 'react-bootstrap/Modal';
 import React from 'react'
 
 import basePage from './basePage.jsx';
 
 import './css/styles.css';
+
+const IMAGE_FILE = /\.(jpe?g|png|gif)$/i;
+const LOGS_CHANGED_DEBOUNCE_MS = 500;
+const SECTION_TYPES = { '0': 'telemetry', '1': 'bin', '2': 'kmz', '3': 'terminal', '4': 'media' };
 
 class LoggerPage extends basePage {
   constructor (props, useSocketIO = true) {
@@ -21,8 +26,11 @@ class LoggerPage extends basePage {
       diskSpaceStatus: "",
       conversionLogStatus: 'N/A',
       videoStreamStatus: 'N/A',
-      doLogConversion: true
+      doLogConversion: true,
+      viewerKey: null
     }
+    this.pendingTypes = new Set()
+    this.logsChangedTimer = null
 
     //Socket.io client for reading update values
     this.socket.on('LogConversionStatus', function (msg) {
@@ -30,6 +38,9 @@ class LoggerPage extends basePage {
     }.bind(this))
     this.socket.on('VideoStreamStatus', function (msg) {
     this.setState({ videoStreamStatus: msg })
+    }.bind(this))
+    this.socket.on('logs:changed', function (msg) {
+      this.queueLogsRefresh(msg && msg.type)
     }.bind(this))
     this.socket.on('reconnect', function () {
       //refresh state
@@ -53,10 +64,83 @@ class LoggerPage extends basePage {
       }).then(response => response.json()).then(state => { this.setState(state) });
   }
   componentDidMount() {
-    fetch(`/api/logfiles`, {headers: {Authorization: `Bearer ${this.state.token}`}}).then(response => response.json()).then(state => { this.setState(state); this.loadDone() });
+    this.loadLogFiles().then(() => this.loadDone());
     this.loadTerminalLogs();
     fetch(`/api/diskinfo`, {headers: {Authorization: `Bearer ${this.state.token}`}}).then(response => response.json()).then(state => { this.setState(state) });
     fetch(`/api/logconversioninfo`, {headers: {Authorization: `Bearer ${this.state.token}`}}).then(response => response.json()).then(state => { this.setState(state); this.loadDone() })
+  }
+
+  loadLogFiles() {
+    return fetch(`/api/logfiles`, {headers: {Authorization: `Bearer ${this.state.token}`}}).then(response => response.json()).then(state => { this.setState(state) });
+  }
+
+  queueLogsRefresh(type) {
+    if (!type) return;
+    this.pendingTypes.add(type);
+    clearTimeout(this.logsChangedTimer);
+    this.logsChangedTimer = setTimeout(this.flushLogsRefresh, LOGS_CHANGED_DEBOUNCE_MS);
+  }
+
+  flushLogsRefresh = () => {
+    const types = this.pendingTypes;
+    this.pendingTypes = new Set();
+    this.logsChangedTimer = null;
+    if ([...types].some(type => type !== 'terminal')) this.loadLogFiles();
+    if (types.has('terminal')) this.loadTerminalLogs();
+  }
+
+  handleSectionSelect = (eventKey) => {
+    const type = SECTION_TYPES[eventKey];
+    if (!type) return;
+    if (type === 'terminal') this.loadTerminalLogs();
+    else this.loadLogFiles();
+  }
+
+  componentWillUnmount() {
+    clearTimeout(this.logsChangedTimer);
+    document.removeEventListener('keydown', this.handleViewerKey);
+    super.componentWillUnmount();
+  }
+
+  componentDidUpdate(prevProps, prevState) {
+    const wasOpen = prevState.viewerKey !== null;
+    const isOpen = this.state.viewerKey !== null;
+    if (isOpen && !wasOpen) document.addEventListener('keydown', this.handleViewerKey);
+    if (!isOpen && wasOpen) document.removeEventListener('keydown', this.handleViewerKey);
+    if (isOpen && this.viewerIndex() === -1) this.closeViewer();
+  }
+
+  sortedMedia() {
+    return [...this.state.MediaFiles].sort((a, b) => new Date(b.modified) - new Date(a.modified));
+  }
+
+  viewerImages() {
+    return this.sortedMedia().filter(log => IMAGE_FILE.test(log.key));
+  }
+
+  viewerIndex() {
+    return this.viewerImages().findIndex(log => log.key === this.state.viewerKey);
+  }
+
+  openViewer = (event, key) => {
+    event.preventDefault();
+    this.setState({ viewerKey: key });
+  }
+
+  closeViewer = () => {
+    this.setState({ viewerKey: null });
+  }
+
+  stepViewer = (step) => {
+    const images = this.viewerImages();
+    const target = images[this.viewerIndex() + step];
+    if (target) this.setState({ viewerKey: target.key });
+  }
+
+  handleViewerKey = (event) => {
+    if (event.key === 'ArrowLeft') this.stepViewer(-1);
+    else if (event.key === 'ArrowRight') this.stepViewer(1);
+    else if (event.key === 'Escape') this.closeViewer();
   }
 
   loadTerminalLogs() {
@@ -174,9 +258,10 @@ class LoggerPage extends basePage {
     });
 
     return sorted.map((log) => {
+      const isImage = IMAGE_FILE.test(log.key);
       return (
         <tr key={log.key}>
-          <td><a href={baseUrl + "/media/" + log.key} download={log.name}>{log.key}</a></td>
+          <td><a href={baseUrl + "/media/" + log.key} download={log.name} onClick={isImage ? (event) => this.openViewer(event, log.key) : undefined}>{log.key}</a></td>
           <td>{log.size} KB</td>
           <td>{log.modified}</td>
         </tr>
@@ -224,12 +309,33 @@ class LoggerPage extends basePage {
     event.preventDefault();
   }
 
+  renderViewer() {
+    const images = this.viewerImages();
+    const index = this.viewerIndex();
+    const current = index >= 0 ? images[index] : null;
+    return (
+      <Modal show={current !== null} onHide={this.closeViewer} size="lg" centered>
+        <Modal.Header closeButton>
+          <Modal.Title>{current ? current.name : ''}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body style={{ textAlign: 'center' }}>
+          {current && <img id="mediaViewerImage" src={"/media/" + current.key} alt={current.name} style={{ maxWidth: '100%', maxHeight: '70vh' }} />}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button id="mediaViewerPrev" variant="secondary" disabled={index <= 0} onClick={() => this.stepViewer(-1)}>Previous</Button>
+          <Button id="mediaViewerNext" variant="secondary" disabled={index < 0 || index >= images.length - 1} onClick={() => this.stepViewer(1)}>Next</Button>
+          {current && <a id="mediaViewerDownload" className="btn btn-primary" href={"/media/" + current.key} download={current.name}>Download</a>}
+        </Modal.Footer>
+      </Modal>
+    );
+  }
+
   renderContent() {
     return (
       <div style={{ width: 600 }}>
         <p><i>Save and download flight logs and saved photos/videos</i></p>
         <p>Disk Space: {this.state.diskSpaceStatus}</p>
-        <Accordion defaultActiveKey="0">
+        <Accordion defaultActiveKey="0" onSelect={this.handleSectionSelect}>
           <Accordion.Item eventKey="0">
             <Accordion.Header>Telemetry Logs</Accordion.Header>
             <Accordion.Body>
@@ -351,6 +457,7 @@ class LoggerPage extends basePage {
             </Accordion.Body>
           </Accordion.Item>
         </Accordion>
+        {this.renderViewer()}
       </div>
     );
   }

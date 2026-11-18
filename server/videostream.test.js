@@ -339,6 +339,79 @@ describe('Video Functions', function () {
     assert.equal(vManager.deviceStream, procB, "The current device stream must be unaffected")
   })
 
+  describe('file saved reports', function () {
+    function setup () {
+      settings.clear()
+      const vManager = new VideoStream(settings)
+      const proc = new EventEmitter()
+      proc.stdout = new EventEmitter()
+      proc.stderr = new EventEmitter()
+      proc.kill = () => {}
+      vManager.deviceStream = proc
+      vManager.setupStreamEvents('Photo Mode', () => {})
+      const saved = []
+      const changed = []
+      vManager.eventEmitter.on('filesaved', (f) => saved.push(f))
+      vManager.eventEmitter.on('logschanged', (t) => changed.push(t))
+      return { vManager, proc, saved, changed }
+    }
+
+    it('does not report a photo when capture starts', function () {
+      const { vManager, proc, saved, changed } = setup()
+      proc.stdout.emit('data', Buffer.from('Capturing photo to /m/RPN1.jpg\n'))
+      assert.deepEqual(saved, [])
+      assert.deepEqual(changed, [])
+      assert.equal(vManager.lastSavedFile, undefined)
+    })
+
+    it('reports a photo once it is written', function () {
+      const { vManager, proc, saved, changed } = setup()
+      proc.stdout.emit('data', Buffer.from('Capturing photo to /m/RPN1.jpg\nPhoto captured.\n'))
+      proc.stdout.emit('data', Buffer.from('Photo saved to /m/RPN1.jpg\n'))
+      assert.deepEqual(saved, ['/m/RPN1.jpg'])
+      assert.deepEqual(changed, ['media'])
+      assert.equal(vManager.lastSavedFile, '/m/RPN1.jpg')
+    })
+
+    it('reports a recording when it starts and when it stops', function () {
+      const { vManager, proc, saved, changed } = setup()
+      vManager.cameraMode = 'video'
+      proc.stdout.emit('data', Buffer.from('V4L2 recording started to /m/RPN2.avi\n'))
+      proc.stdout.emit('data', Buffer.from('V4L2 recording stopped.\nRecording saved to /m/RPN2.avi\n'))
+      assert.deepEqual(saved, ['/m/RPN2.avi', '/m/RPN2.avi'])
+      assert.deepEqual(changed, ['media', 'media'])
+      assert.equal(vManager.lastSavedFile, '/m/RPN2.avi')
+    })
+  })
+
+  describe('camera process arguments', function () {
+    it('passes the saved still format to photovideo.py', function () {
+      settings.clear()
+      const vManager = new VideoStream(settings)
+      vManager.stillSettings = { device: '/dev/video0', width: 2592, height: 1944, format: 'MJPG' }
+      const args = vManager.buildPhotoArgs()
+      assert.ok(args.includes('--width=2592'))
+      assert.ok(args.includes('--height=1944'))
+      assert.ok(args.includes('--format=MJPG'))
+    })
+
+    it('omits the format when none is saved', function () {
+      settings.clear()
+      const vManager = new VideoStream(settings)
+      vManager.stillSettings = { device: '/dev/video0', width: 640, height: 480 }
+      assert.ok(!vManager.buildPhotoArgs().some(a => a.startsWith('--format')))
+    })
+
+    it('passes the recording format to photovideo.py', function () {
+      settings.clear()
+      const vManager = new VideoStream(settings)
+      vManager.videoRecordSettings = { device: '/dev/video0', width: 1280, height: 720, fps: 30, rotation: 0, format: 'image/jpeg' }
+      const args = vManager.buildVideoArgs(1100000)
+      assert.ok(args.includes('--format=image/jpeg'))
+      assert.ok(args.includes('--bitrate=1100000'))
+    })
+  })
+
   it('#setupStreamEventsClearsHeartbeatIntervalOnProcessClose()', function () {
     settings.clear()
     const vManager = new VideoStream(settings)
