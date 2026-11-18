@@ -226,8 +226,8 @@ The same session can be used over SSH: ``tmux -S /run/rpanion-terminal/tmux.sock
 apt while a session runs, a new client may not connect to the old server; "Stop session" fixes that.
 
 Keys as in Linux terminal emulators: Ctrl+C sends SIGINT, Ctrl+Shift+C copies the selection, Ctrl+Shift+V pastes
-(Ctrl+Insert and Shift+Insert also work). With the tmux mouse mode, dragging selects inside tmux; hold Shift while
-dragging to select for the browser clipboard.
+(Ctrl+Insert and Shift+Insert also work). Dragging selects text in the browser. The mouse wheel scrolls the tmux
+history (or sends arrow keys to full-screen programs); scrolling back to the bottom leaves the history view.
 
 ### Out of memory
 

@@ -75,3 +75,28 @@ export function createKeyHandler({ term, copy = copyText }) {
     return true;
   };
 }
+
+// tmux runs with the mouse off (deploy/rpanion-terminal.tmux.conf) so that the browser selects
+// text; the wheel is sent as two tmux user keys bound to history scrolling (3 lines each).
+export const WHEEL_UP = '\x1b[42001~';
+export const WHEEL_DOWN = '\x1b[42002~';
+// Pixel deltas (touchpads) are summed so that one key is sent per this many pixels
+const PIXELS_PER_STEP = 50;
+
+// For xterm's attachCustomWheelEventHandler: returning false keeps xterm from handling the wheel
+export function createWheelHandler({ send }) {
+  let pending = 0;
+  return (event) => {
+    if (event.deltaMode === 0) {
+      pending += event.deltaY;
+    } else {
+      pending += Math.sign(event.deltaY) * PIXELS_PER_STEP;
+    }
+    while (Math.abs(pending) >= PIXELS_PER_STEP) {
+      send(pending < 0 ? WHEEL_UP : WHEEL_DOWN);
+      pending -= Math.sign(pending) * PIXELS_PER_STEP;
+    }
+    event.preventDefault?.();
+    return false;
+  };
+}

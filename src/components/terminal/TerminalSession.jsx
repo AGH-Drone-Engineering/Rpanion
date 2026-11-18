@@ -8,7 +8,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { createTerminalApi } from '../../api/terminalApi.js';
-import { createKeyHandler } from '../../terminalKeys.js';
+import { createKeyHandler, createWheelHandler } from '../../terminalKeys.js';
 import SessionStats from './SessionStats.jsx';
 import TerminalTabs from './TerminalTabs.jsx';
 
@@ -60,6 +60,7 @@ function TerminalSession({ token }) {
     socketRef.current = socket;
 
     term.onData((data) => socket.emit('input', data));
+    term.attachCustomWheelEventHandler(createWheelHandler({ send: (data) => socket.emit('input', data) }));
     term.onResize(({ cols, rows }) => socket.emit('resize', { cols, rows }));
 
     socket.on('connect', () => {
@@ -182,7 +183,6 @@ function TerminalSession({ token }) {
         ref={containerRef}
         style={{ height: 'calc(100vh - 370px)', minHeight: 300, background: '#000', display: attached ? 'block' : 'none' }}
       />
-      {attached && <p className="mt-1">Hold Shift while dragging to select text for copying.</p>}
 
       <Modal show={confirmStop} onHide={() => setConfirmStop(false)}>
         <Modal.Header closeButton>

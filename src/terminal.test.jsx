@@ -21,6 +21,7 @@ vi.mock('@xterm/xterm', () => ({
     dispose () {}
     reset () { this.resets++ }
     attachCustomKeyEventHandler (fn) { this.keyHandler = fn }
+    attachCustomWheelEventHandler (fn) { this.wheelHandler = fn }
     onData (fn) { this.handlers.data = fn }
     onResize (fn) { this.handlers.resize = fn }
     write (data, cb) { this.written.push(data); if (cb) cb() }
@@ -126,12 +127,13 @@ describe('TerminalSession', () => {
     expect(socket.emitted).toContainEqual(['resize', { cols: 100, rows: 30 }])
   })
 
-  test('shows the Shift+drag hint only while attached', async () => {
-    const div = await render()
+  test('sends the mouse wheel to tmux as scroll keys', async () => {
+    await render()
     const socket = fakes.sockets[0]
-    expect(div.textContent).not.toContain('Shift')
     await act(async () => { socket.fire('state', { state: 'attached' }) })
-    expect(div.textContent).toContain('Hold Shift while dragging')
+    const term = fakes.terminals.at(-1)
+    expect(term.wheelHandler({ deltaMode: 1, deltaY: -3, preventDefault () {} })).toBe(false)
+    expect(socket.emitted.filter(([name]) => name === 'input').at(-1)).toEqual(['input', '\x1b[42001~'])
   })
 
   test('Stop session asks for confirmation, then shows Stopping and Session stopped', async () => {

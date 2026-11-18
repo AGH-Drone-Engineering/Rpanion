@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from 'vitest'
-import { createKeyHandler, copyText } from './terminalKeys.js'
+import { createKeyHandler, copyText, createWheelHandler, WHEEL_UP, WHEEL_DOWN } from './terminalKeys.js'
 
 function key(init) {
   return { type: 'keydown', key: '', code: '', ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, preventDefault: vi.fn(), ...init }
@@ -104,5 +104,26 @@ describe('copyText', () => {
     copyText('abc', { document, navigator: { clipboard: { writeText } }, isSecureContext: true })
     expect(writeText).toHaveBeenCalledWith('abc')
     expect(document.execCommand).not.toHaveBeenCalled()
+  })
+})
+
+describe('createWheelHandler', () => {
+  const wheel = (deltaY, deltaMode = 0) => ({ deltaY, deltaMode, preventDefault: vi.fn() })
+
+  test('one key per wheel notch, xterm does not handle the event', () => {
+    const send = vi.fn()
+    const handler = createWheelHandler({ send })
+    expect(handler(wheel(-3, 1))).toBe(false)
+    expect(handler(wheel(3, 1))).toBe(false)
+    expect(send.mock.calls).toEqual([[WHEEL_UP], [WHEEL_DOWN]])
+  })
+
+  test('pixel deltas from touchpads are summed to 50 px per key', () => {
+    const send = vi.fn()
+    const handler = createWheelHandler({ send })
+    for (let i = 0; i < 4; i++) handler(wheel(-20))
+    expect(send.mock.calls).toEqual([[WHEEL_UP]])
+    handler(wheel(-120))
+    expect(send).toHaveBeenCalledTimes(4)
   })
 })
