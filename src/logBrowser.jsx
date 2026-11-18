@@ -111,7 +111,7 @@ class LoggerPage extends basePage {
   }
 
   sortedMedia() {
-    return [...this.state.MediaFiles].sort((a, b) => new Date(b.modified) - new Date(a.modified));
+    return [...this.state.MediaFiles].sort((a, b) => b.mtime - a.mtime);
   }
 
   viewerImages() {
@@ -249,15 +249,10 @@ class LoggerPage extends basePage {
     });
   }
 
-  // create an html table from a list of media files, sorted from newest to oldest
-  renderMediaTableData(logfilelist) {
-    // clone the list and sort with newest first
+  // Media files, newest first
+  renderMediaTableData() {
     const baseUrl = window.location.origin;
-    const sorted = [...logfilelist].sort((a, b) => {
-      return new Date(b.modified) - new Date(a.modified);
-    });
-
-    return sorted.map((log) => {
+    return this.sortedMedia().map((log) => {
       const isImage = IMAGE_FILE.test(log.key);
       return (
         <tr key={log.key}>
@@ -450,7 +445,7 @@ class LoggerPage extends basePage {
               <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
                 <Table striped bordered hover size="sm">
                   <tbody>
-                    {this.renderMediaTableData(this.state.MediaFiles)}
+                    {this.renderMediaTableData()}
                   </tbody>
                 </Table>
               </div>

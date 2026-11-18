@@ -101,6 +101,7 @@ function createTerminalLogs ({ dir = logpaths.terminalLogDir, listPanes = async 
           name: f.name,
           size: Math.round(f.stat.size / 1024),
           modified: new Date(f.stat.mtimeMs).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+          mtime: Math.round(f.stat.mtimeMs),
           active: active.has(f.name)
         }))
     },

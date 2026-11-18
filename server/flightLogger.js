@@ -101,7 +101,7 @@ class flightLogger {
         } else if (extensions.some(ext => filePath.toLowerCase().endsWith(ext.toLowerCase()))) {
           const relpath = path.relative(dir, filePath)
           const mTime = filemTime.toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-          fileList.push({ key: relpath, name: path.basename(filePath), modified: mTime, size: Math.round(fileStat.size / 1024) })
+          fileList.push({ key: relpath, name: path.basename(filePath), modified: mTime, mtime: Math.round(fileStat.mtimeMs), size: Math.round(fileStat.size / 1024) })
         }
       })
     }

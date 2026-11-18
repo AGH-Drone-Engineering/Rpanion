@@ -25,10 +25,10 @@ beforeAll(() => {
 })
 
 const media = [
-  { key: 'RPN1.jpg', name: 'RPN1.jpg', size: 10, modified: '2026-01-01T10:00:00Z' },
-  { key: 'RPN2.avi', name: 'RPN2.avi', size: 10, modified: '2026-01-01T11:00:00Z' },
-  { key: 'RPN3.jpg', name: 'RPN3.jpg', size: 10, modified: '2026-01-01T12:00:00Z' },
-  { key: 'RPN4.png', name: 'RPN4.png', size: 10, modified: '2026-01-01T13:00:00Z' }
+  { key: 'RPN1.jpg', name: 'RPN1.jpg', size: 10, modified: '1 January 2026 at 10:00', mtime: Date.UTC(2026, 0, 1, 10) },
+  { key: 'RPN2.avi', name: 'RPN2.avi', size: 10, modified: '1 January 2026 at 11:00', mtime: Date.UTC(2026, 0, 1, 11) },
+  { key: 'RPN3.jpg', name: 'RPN3.jpg', size: 10, modified: '1 January 2026 at 12:00', mtime: Date.UTC(2026, 0, 1, 12) },
+  { key: 'RPN4.png', name: 'RPN4.png', size: 10, modified: '1 January 2026 at 13:00', mtime: Date.UTC(2026, 0, 1, 13) }
 ]
 
 let fetchMock

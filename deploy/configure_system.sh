@@ -12,6 +12,9 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sudo install -o root -g root -m 755 "$SCRIPT_DIR/../server/rpanion-system.sh" /usr/local/sbin/rpanion-system
 
+## Time zone of file names and logs; RPANION_TIMEZONE overrides
+sudo timedatectl set-timezone "${RPANION_TIMEZONE:-Europe/Warsaw}"
+
 ## Log directory layout (telemetry, bin, kmz, terminal, media)
 sudo "$SCRIPT_DIR/../server/migrate-logs.sh"
 sudo chown -R rpanion:rpanion /etc/rpanion-server/logs
