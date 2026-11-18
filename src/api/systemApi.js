@@ -5,8 +5,8 @@ function errorText(value) {
   return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
-export function createSystemApi(token) {
-  const request = async (method, url, body) => {
+export function createRequest(token) {
+  return async (method, url, body) => {
     const options = {
       method,
       headers: {
@@ -26,6 +26,10 @@ export function createSystemApi(token) {
     }
     return data;
   };
+}
+
+export function createSystemApi(token) {
+  const request = createRequest(token);
 
   return {
     getIdentity: () => request('GET', '/api/system/identity'),

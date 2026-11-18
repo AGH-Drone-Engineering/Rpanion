@@ -301,6 +301,13 @@ class FCDetails {
     }
   }
 
+  sendStatusText (severity, text) {
+    // message to the GCS; dropped when there is no telemetry link
+    if (this.m !== null) {
+      this.m.sendStatusText(severity, text)
+    }
+  }
+
   startBinLogging () {
     // command the flight controller to start streaming bin log
     if (this.m !== null) {

@@ -287,6 +287,14 @@ class mavManager {
     this.sendData(systemTimeMessage, minimal.MavComponent.ONBOARD_COMPUTER)
   }
 
+  sendStatusText (severity, text) {
+    // STATUSTEXT carries 50 characters; the GCS shows it as a message from the companion computer
+    const message = new common.StatusText()
+    message.severity = severity
+    message.text = String(text).replace(/[^ -~]+/g, '').slice(0, 50)
+    this.sendData(message, minimal.MavComponent.ONBOARD_COMPUTER)
+  }
+
   sendOnboardComputerStatus (status) {
     // Send ONBOARD_COMPUTER_STATUS with the companion's CPU, RAM, temperature and disk use.
     // Array slots we have no value for must hold the MAVLink "unused" value, not 0

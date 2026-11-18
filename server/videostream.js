@@ -8,6 +8,12 @@ const logpaths = require('./paths.js')
 const fs = require('fs')
 const rpanionVersion = require('../package.json').version
 
+// The software H.264 encoder runs behind mavlink-router, which shares the CPU with it.
+// nice replaces itself with the command, so the pid and signals are those of the Python process.
+function spawnLowPriority (command, args) {
+  return spawn('nice', ['-n', '10', command, ...args])
+}
+
 class videoStream {
   constructor (settings) {
     this.settings = settings
@@ -686,7 +692,7 @@ class videoStream {
     }
 
     const pythonPath = logpaths.getPythonPath()
-    this.deviceStream = spawn(pythonPath, args)
+    this.deviceStream = spawnLowPriority(pythonPath, args)
     this.setupStreamEvents('Streaming', callback);
 
     // Start MAVLink heartbeats if enabled
@@ -725,7 +731,7 @@ class videoStream {
     }
 
     const pythonPath = logpaths.getPythonPath()
-    this.deviceStream = spawn(pythonPath, args)
+    this.deviceStream = spawnLowPriority(pythonPath, args)
     this.setupStreamEvents('Photo Mode', callback);
 
     // Start MAVLink heartbeats if enabled
@@ -767,7 +773,7 @@ class videoStream {
     }
 
     const pythonPath = logpaths.getPythonPath()
-    this.deviceStream = spawn(pythonPath, args)
+    this.deviceStream = spawnLowPriority(pythonPath, args)
     this.setupStreamEvents('Video Mode', callback);
 
     // Start MAVLink heartbeats if enabled

@@ -33,7 +33,9 @@ const appRoot = require('app-root-path')  // for resolving relative paths
 const MEDIA_ROOT = logpaths.mediaDir; // absolute path to rpanion-server/media
 
 
-const io = require('socket.io')(http, { cookie: false })
+// A lost client is detected after pingInterval + pingTimeout (default 25 s + 20 s); the terminal
+// then detaches its tmux client
+const io = require('socket.io')(http, { cookie: false, pingInterval: 5000, pingTimeout: 5000 })
 const { check, validationResult } = require('express-validator')
 const crypto = require('crypto');
 
@@ -44,6 +46,10 @@ const ResourceGuard = require('./resourceGuard.js')
 const createNetworkRouter = require('./routes/network.js')
 const createSystemRouter = require('./routes/system.js')
 const { createSystemIdentity } = require('./systemIdentity.js')
+const createTerminalRouter = require('./routes/terminal.js')
+const { createTerminalSystem } = require('./terminalSystem.js')
+const { createTerminal } = require('./terminal.js')
+const { createOomWatch } = require('./memoryWatch.js')
 const limiter = RateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
   max: 120,
@@ -114,6 +120,9 @@ async function gracefulShutdown(signal, exitCode = 0) {
   }, SHUTDOWN_TIMEOUT)
   
   try {
+    // Detach the tmux clients first; io.close() would drop the sockets without it
+    terminal.closeAll()
+
     // io.close() disconnects Socket.IO clients and also closes the http server.
     // Closing http first hangs until SHUTDOWN_TIMEOUT on open websockets.
     console.log('Closing Socket.IO and HTTP server...')
@@ -144,6 +153,7 @@ async function gracefulShutdown(signal, exitCode = 0) {
       ntripClient.client = null
     }
 
+    oomWatch.stop()
     pppConnectionManager.quitting()
     cloud.quitting()
     logConversion.quitting()
@@ -500,6 +510,7 @@ app.post('/api/deleteUser', authenticateToken, [check('username').escape().isLen
 
   userMgmt.deleteUser(username).then((success) => {
     if (success) {
+      terminal.closeUser(username)
       res.send(JSON.stringify({infoMessage: 'User deleted successfully'}))
     } else {
       res.status(500).send(JSON.stringify({error: 'Error deleting user'}))
@@ -514,6 +525,7 @@ app.post('/api/logout', authenticateToken, async (req, res) => {
 
   // Add token to the blacklist
   tokenBlacklist.push(token)
+  terminal.closeToken(token)
 
   res.send({
     token: token
@@ -1173,6 +1185,22 @@ io.engine.use((req, res, next) => {
   }
 })
 
+const terminalSystem = createTerminalSystem()
+const terminal = createTerminal({
+  io,
+  system: terminalSystem,
+  isAuthEnabled: () => !(process.env.NODE_ENV === 'development' || process.env.DISABLE_AUTH === '1')
+})
+
+// An OOM kill in the session slice (main.py started from the terminal) is reported to the GCS
+const oomWatch = createOomWatch({
+  readOomKills: () => terminalSystem.readOomKills(),
+  onKill: (delta) => {
+    console.log(`OOM kill in user-1000.slice: ${delta} process(es)`)
+    fcManager.sendStatusText(common.MavSeverity.WARNING, 'Companion OOM: process killed')
+  }
+})
+
 io.on('connection', function (socket) {
   socket.on('subscribeSystemStats', () => socket.join('systemstats'))
   socket.on('unsubscribeSystemStats', () => socket.leave('systemstats'))
@@ -1367,13 +1395,14 @@ app.post('/api/camera/stop', authenticateToken, (req, res) => {
 
 app.use(createNetworkRouter({ networkManager, authenticateToken }))
 app.use(createSystemRouter({ systemIdentity: createSystemIdentity(), authenticateToken }))
+app.use(createTerminalRouter({ terminalSystem, authenticateToken }))
 
 // Pass GUI requests to the React app only in production mode
 if (process.env.NODE_ENV !== 'development')
 {
   app.get(['/', '/controller', '/about', '/network',
           '/video', '/vpn', '/ntrip', '/cloud', '/flightlogs',
-          '/apclients', '/adhoc', '/logoutconfirm', '/users', '/device', '/ppp'], (req, res) => {
+          '/apclients', '/adhoc', '/logoutconfirm', '/users', '/device', '/ppp', '/terminal'], (req, res) => {
     res.sendFile(path.join(__dirname, '..', '/build/index.html'))
   })
 }
@@ -1387,6 +1416,7 @@ if (require.main === module) {
     console.log(`Server running on port ${port}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
     console.log('Press Ctrl+C to stop');
+    oomWatch.start()
   });
 }
 

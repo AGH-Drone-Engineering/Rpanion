@@ -1,5 +1,5 @@
 import { Route, Routes, Link, useLocation, Navigate } from 'react-router-dom'
-import React, { useState, useEffect } from 'react'
+import React, { Suspense, lazy, useState, useEffect } from 'react'
 
 import About from './about.jsx'
 import Home from './home.jsx'
@@ -15,6 +15,9 @@ import VPN from './vpnconfig.jsx'
 import Logout from './logout.jsx'
 import DeviceSettings from './deviceSettings.jsx'
 import PPPPage from './ppp.jsx'
+
+// xterm.js is only needed on the terminal page
+const TerminalPage = lazy(() => import('./terminal.jsx'))
 
 function AppRouter () {
   const [isAuthenticated, setIsAuthenticated] = useState(null)
@@ -78,6 +81,7 @@ function AppRouter () {
           <Link className='list-group-item list-group-item-action bg-light' to="/vpn">VPN Config</Link>
           <Link className='list-group-item list-group-item-action bg-light' to="/about">About</Link>
           <Link className='list-group-item list-group-item-action bg-light' to="/device">Device Settings</Link>
+          <Link className='list-group-item list-group-item-action bg-light' to="/terminal">Terminal</Link>
           {isAuthEnabled && (
             <Link className='list-group-item list-group-item-action bg-light' to="/logoutconfirm">Logout</Link>
           )}
@@ -103,6 +107,7 @@ function AppRouter () {
               <Route path="/logoutconfirm" element={<Logout />} />
             )}
             <Route exact path="/device" element={<DeviceSettings/>} />
+            <Route exact path="/terminal" element={<Suspense fallback={null}><TerminalPage /></Suspense>} />
             <Route exact path="/users" element={<Navigate to="/device" replace />} />
             <Route path="*" element={<NoMatch />} />
           </Routes>
