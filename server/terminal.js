@@ -19,11 +19,11 @@ function attachCommand (sessionName) {
   return ['sudo', ['-n', ...TMUX_SUDO, 'new-session', '-t', MAIN_SESSION, '-s', sessionName, ';', 'set-option', 'destroy-unattached', 'on']]
 }
 
-const MAX_CLIENTS = 4
+const MAX_CLIENTS = 10
 const MAX_WINDOWS = 8
 const MAX_TAB_NAME = 32
 // tmux has no change notifications for a client that is not attached through it
-const WINDOWS_POLL_MS = 1000
+const WINDOWS_POLL_MS = 3000
 // First listing after the spawn: the tmux client needs a moment to create its session
 const WINDOWS_FIRST_POLL_MS = 150
 const FLUSH_INTERVAL_MS = 30
@@ -69,8 +69,12 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
   })
 
   nsp.on('connection', (socket) => {
+    // The JWT of the handshake (see authenticateToken in index.js); logout closes the sockets of one token
+    const authorization = socket.handshake && socket.handshake.headers && socket.handshake.headers.authorization
     const session = {
       socket,
+      token: typeof authorization === 'string' ? authorization.split(' ')[1] || null : null,
+      username: socket.request && socket.request.user ? socket.request.user.username : null,
       name: null,
       term: null,
       chunks: [],
@@ -316,15 +320,29 @@ function createTerminal ({ io, system, isAuthEnabled, loadPty = () => require('n
     })
   })
 
+  function closeWhere (predicate) {
+    for (const session of [...sessions]) {
+      if (!predicate(session)) continue
+      session.closing = true
+      session.socket.disconnect(true)
+    }
+  }
+
   return {
+    // Several browsers can be logged in as the same user; each has its own token
+    closeToken (token) {
+      if (!token) return
+      closeWhere(session => session.token === token)
+    },
+    closeUser (username) {
+      if (!username) return
+      closeWhere(session => session.username === username)
+    },
     closeAll () {
-      for (const session of [...sessions]) {
-        session.closing = true
-        session.socket.disconnect(true)
-      }
+      closeWhere(() => true)
       nsp.disconnectSockets(true)
     }
   }
 }
 
-module.exports = { createTerminal, MAX_CLIENTS, MAX_WINDOWS, MAX_TAB_NAME, HIGH_WATER, LOW_WATER }
+module.exports = { createTerminal, MAX_CLIENTS, MAX_WINDOWS, HIGH_WATER, LOW_WATER, WINDOWS_POLL_MS }

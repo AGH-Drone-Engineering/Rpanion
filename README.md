@@ -217,10 +217,17 @@ Rpanion-server; reconnecting attaches to the running session. It is started with
 with "Stop session" (or ``sudo systemctl stop rpanion-terminal``). The terminal needs the access control of the
 Web GUI and is refused when ``DISABLE_AUTH=1``.
 
-Tabs ("+" opens one, "×" closes it, at most 8) are the windows of the tmux session ``main`` and are shared by all
+Tabs ("+" opens one, "×" closes it, at most 8; double-click a tab or use Rename in its right-click menu to change
+the name, an empty name returns to automatic naming) are the windows of the tmux session ``main`` and are shared by all
 browsers and SSH clients. Each browser has its own tmux session in the group ``main`` (named ``web-<id>``, removed
 when the browser disconnects), so every browser keeps its own selected tab. The last tab cannot be closed; ending
-its shell with ``exit`` ends the session, and the next connection starts a new one.
+its shell with ``exit`` ends the session, and the next connection starts a new one. Tab names are up to 32
+characters and are shared with SSH clients and other browsers.
+
+Up to 10 browsers can be connected at once. Logging out closes only the terminal connections opened with that
+login (other browsers logged in as the same user stay connected); deleting a user closes all of that user's
+connections. A browser that loses its connection is detached after about 10 s. The session keeps running in all
+cases.
 
 The same session can be used over SSH: ``tmux -S /run/rpanion-terminal/tmux.sock attach``. If tmux is updated with
 apt while a session runs, a new client may not connect to the old server; "Stop session" fixes that.
@@ -253,6 +260,12 @@ CPU is not limited. The software video encoder of Rpanion-server runs with ``nic
 
 The terminal files and units are installed by ``deploy/configure_system.sh`` (disk images); the .deb package
 installs the sudoers rules and the helper only.
+
+The sudoers rules let the ``rpanion`` user run ``tmux -N -S /run/rpanion-terminal/tmux.sock *`` as user 1000. The
+tab list is read with ``list-windows`` every 3 s per browser; that one command has ``!log_allowed, !pam_session`` in
+sudoers, so it adds nothing to the journal. All other tmux commands (new, close, rename and select tab) are logged
+as usual. ``tmux.conf`` sources ``/usr/local/lib/rpanion-terminal/log.conf`` if it exists, for session logging;
+the directory belongs to root because tmux runs that file as user 1000.
 
 ### Recommendations for programs run from the terminal
 

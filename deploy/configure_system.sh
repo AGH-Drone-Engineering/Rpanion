@@ -2,7 +2,7 @@
 set -e
 set -x
 
-echo "Configuring device settings helper..."
+echo "Configuring rpanion-system helper, sudoers rules, web terminal and memory settings..."
 
 # The rpanion user is normally created by the .deb postinst, which runs after this script
 if ! getent passwd rpanion >/dev/null; then
@@ -16,6 +16,10 @@ sudo install -o root -g root -m 755 "$SCRIPT_DIR/../server/rpanion-system.sh" /u
 # Validate before install: a broken sudoers fragment disables sudo entirely
 SUDOERS_TMP=$(mktemp)
 cat <<'SUDOERS' > "$SUDOERS_TMP"
+# Window list polled every 3 s by the web terminal
+# Alias names must differ between sudoers fragments
+Cmnd_Alias RPANION_TMUX_POLL_IMAGE = /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock list-windows *
+Defaults!RPANION_TMUX_POLL_IMAGE !log_allowed, !pam_session
 rpanion ALL=(ALL) NOPASSWD: \
   /usr/local/sbin/rpanion-system hostname *, \
   /usr/local/sbin/rpanion-system sshpassword, \
@@ -51,11 +55,6 @@ sudo install -o root -g root -m 644 "$SCRIPT_DIR/rpanion-server-memory.conf" /et
 sudo install -o root -g root -m 644 "$SCRIPT_DIR/rpanion-system-slice.conf" /etc/systemd/system/system.slice.d/rpanion-memory.conf
 sudo install -o root -g root -m 644 "$SCRIPT_DIR/rpanion-user-slice.conf" /etc/systemd/system/user-1000.slice.d/rpanion-memory.conf
 
-# Replaced by the drop-ins above (earlier versions set a boot-time limit)
-if [ -e /etc/systemd/system/rpanion-memory-limit.service ]; then
-    sudo systemctl disable --now rpanion-memory-limit.service || true
-    sudo rm -f /etc/systemd/system/rpanion-memory-limit.service /etc/rpanion-server/memory-reserve
-fi
 sudo systemctl daemon-reload
 # The terminal unit is started on demand from the web UI
 
@@ -70,4 +69,4 @@ if [ "${RPANION_SKIP_CMDLINE:-0}" != 1 ]; then
     sudo "$SCRIPT_DIR/enable-memory-cgroup.sh"
 fi
 
-echo "Device settings helper configured."
+echo "rpanion-system helper, sudoers rules, web terminal and memory settings configured."

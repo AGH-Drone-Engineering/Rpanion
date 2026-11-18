@@ -33,7 +33,9 @@ const appRoot = require('app-root-path')  // for resolving relative paths
 const MEDIA_ROOT = logpaths.mediaDir; // absolute path to rpanion-server/media
 
 
-const io = require('socket.io')(http, { cookie: false })
+// A lost client is detected after pingInterval + pingTimeout (default 25 s + 20 s); the terminal
+// then detaches its tmux client
+const io = require('socket.io')(http, { cookie: false, pingInterval: 5000, pingTimeout: 5000 })
 const { check, validationResult } = require('express-validator')
 const crypto = require('crypto');
 
@@ -118,6 +120,9 @@ async function gracefulShutdown(signal, exitCode = 0) {
   }, SHUTDOWN_TIMEOUT)
   
   try {
+    // Detach the tmux clients first; io.close() would drop the sockets without it
+    terminal.closeAll()
+
     // io.close() disconnects Socket.IO clients and also closes the http server.
     // Closing http first hangs until SHUTDOWN_TIMEOUT on open websockets.
     console.log('Closing Socket.IO and HTTP server...')
@@ -148,7 +153,6 @@ async function gracefulShutdown(signal, exitCode = 0) {
       ntripClient.client = null
     }
 
-    terminal.closeAll()
     oomWatch.stop()
     pppConnectionManager.quitting()
     cloud.quitting()
@@ -506,6 +510,7 @@ app.post('/api/deleteUser', authenticateToken, [check('username').escape().isLen
 
   userMgmt.deleteUser(username).then((success) => {
     if (success) {
+      terminal.closeUser(username)
       res.send(JSON.stringify({infoMessage: 'User deleted successfully'}))
     } else {
       res.status(500).send(JSON.stringify({error: 'Error deleting user'}))
@@ -520,6 +525,7 @@ app.post('/api/logout', authenticateToken, async (req, res) => {
 
   // Add token to the blacklist
   tokenBlacklist.push(token)
+  terminal.closeToken(token)
 
   res.send({
     token: token

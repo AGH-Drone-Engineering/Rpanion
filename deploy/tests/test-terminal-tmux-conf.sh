@@ -17,7 +17,7 @@ TMP=$(mktemp -d)
 SOCK="$TMP/sock"
 trap 'tmux -S "$SOCK" kill-server 2>/dev/null; rm -rf "$TMP"' EXIT
 
-# source-file -q of the missing log config must not fail the load
+# source-file -q of the missing log.conf hook must not fail the load
 if tmux -S "$SOCK" -f "$CONF" new-session -d -s t -x 80 -y 20 'seq 1 300; sleep 30'; then
     ok "config loads"
 else

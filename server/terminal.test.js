@@ -2,7 +2,7 @@ const assert = require('assert')
 const http = require('http')
 const { Server } = require('socket.io')
 const { io: ioClient } = require('socket.io-client')
-const { createTerminal, MAX_CLIENTS, MAX_WINDOWS, HIGH_WATER, LOW_WATER } = require('./terminal')
+const { createTerminal, MAX_CLIENTS, MAX_WINDOWS, HIGH_WATER, LOW_WATER, WINDOWS_POLL_MS } = require('./terminal')
 
 function fakePty () {
   const terms = []
@@ -102,8 +102,9 @@ describe('terminal relay', function () {
     if (httpServer.listening) await new Promise(resolve => httpServer.close(resolve))
   })
 
-  function connect () {
-    const socket = ioClient(`http://127.0.0.1:${port}/terminal`, { forceNew: true, transports: ['websocket'], reconnection: false })
+  function connect (token) {
+    const extraHeaders = token ? { authorization: `Bearer ${token}` } : undefined
+    const socket = ioClient(`http://127.0.0.1:${port}/terminal`, { forceNew: true, transports: ['websocket'], reconnection: false, extraHeaders })
     socket.states = []
     socket.outputs = []
     socket.exits = []
@@ -336,6 +337,53 @@ describe('terminal relay', function () {
     await waitFor(() => pty.terms.every(t => t.kills.length === 1), 'killed')
   })
 
+  describe('closing by login', function () {
+    async function attachedClient (token) {
+      const socket = await connect(token)
+      socket.emit('attach', { cols: 80, rows: 24, start: false })
+      return socket
+    }
+
+    it('closeToken() closes only the sockets that connected with that token', async function () {
+      user = { username: 'admin' }
+      const a1 = await attachedClient('tokenA')
+      const a2 = await attachedClient('tokenA')
+      const b = await attachedClient('tokenB')
+      await waitFor(() => pty.terms.length === 3, 'ptys spawned')
+      terminal.closeToken('tokenA')
+      await waitFor(() => !a1.connected && !a2.connected, 'token A closed')
+      await waitFor(() => pty.terms.filter(t => t.kills.length === 1).length === 2, 'two ptys killed')
+      assert.ok(b.connected)
+      assert.strictEqual(pty.terms[2].kills.length, 0)
+    })
+
+    it('closeToken() ignores a missing token and sockets without one', async function () {
+      const anonymous = await attachedClient()
+      await waitFor(() => pty.terms.length === 1, 'pty spawned')
+      terminal.closeToken(undefined)
+      terminal.closeToken(null)
+      terminal.closeToken('')
+      await wait(100)
+      assert.ok(anonymous.connected)
+    })
+
+    it('closeUser() closes every socket of that user and no other', async function () {
+      user = { username: 'admin' }
+      const a1 = await attachedClient('tokenA')
+      const a2 = await attachedClient('tokenB')
+      user = { username: 'other' }
+      const o = await attachedClient('tokenC')
+      await waitFor(() => pty.terms.length === 3, 'ptys spawned')
+      terminal.closeUser('admin')
+      await waitFor(() => !a1.connected && !a2.connected, 'admin closed')
+      await waitFor(() => pty.terms.filter(t => t.kills.length === 1).length === 2, 'two ptys killed')
+      assert.ok(o.connected)
+      terminal.closeUser(undefined)
+      await wait(50)
+      assert.ok(o.connected)
+    })
+  })
+
   describe('tabs', function () {
     async function attached () {
       const socket = await connect()
@@ -346,14 +394,14 @@ describe('terminal relay', function () {
     const sessionOf = () => pty.terms[pty.terms.length - 1].args[11]
 
     it('sends the window list of the client session and again only on change', async function () {
-      this.timeout(8000)
+      this.timeout(15000)
       const socket = await attached()
       assert.deepStrictEqual(socket.windowLists[0], [{ id: '@0', index: 0, name: 'bash', active: true }])
       assert.ok(system.calls.every(c => c[0] === 'list' && c[1] === sessionOf()))
-      await wait(2300)
+      await wait(WINDOWS_POLL_MS + 300)
       assert.strictEqual(socket.windowLists.length, 1)
       system.windows.push({ id: '@3', index: 1, name: 'htop', active: false })
-      await waitFor(() => socket.windowLists.length === 2, 'changed list', 3000)
+      await waitFor(() => socket.windowLists.length === 2, 'changed list', WINDOWS_POLL_MS + 1000)
       assert.strictEqual(socket.windowLists[1][1].name, 'htop')
     })
 
@@ -460,12 +508,12 @@ describe('terminal relay', function () {
     })
 
     it('stops polling after the tmux client exits or the socket closes', async function () {
-      this.timeout(8000)
+      this.timeout(15000)
       const socket = await attached()
       pty.terms[0].emitExit(0)
       await waitFor(() => socket.exits.length === 1, 'exit')
       const count = system.calls.length
-      await wait(1300)
+      await wait(WINDOWS_POLL_MS + 300)
       assert.strictEqual(system.calls.length, count)
 
       const other = await attached()
@@ -473,7 +521,7 @@ describe('terminal relay', function () {
       await waitFor(() => pty.terms[1].kills.length === 1, 'kill')
       await wait(100)
       const after = system.calls.length
-      await wait(1300)
+      await wait(WINDOWS_POLL_MS + 300)
       assert.strictEqual(system.calls.length, after)
     })
   })

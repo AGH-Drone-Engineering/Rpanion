@@ -135,8 +135,9 @@ function createTerminalSystem ({ execFile = childProcess.execFile, readFile = fs
         await tmux(['set-window-option', '-t', id, 'automatic-rename', 'on'])
         return
       }
-      // rename-window expands #{...} formats; ## keeps a literal #
-      await tmux(['rename-window', '-t', id, '--', name.replace(/#/g, '##')])
+      // rename-window expands #{...} formats; ## keeps a literal #. tmux ends the command at an
+      // argument ending in ';', so a trailing ; is sent as \; (the name then keeps the ;).
+      await tmux(['rename-window', '-t', id, '--', name.replace(/#/g, '##').replace(/;$/, '\\;')])
     },
 
     async selectWindow (session, id) {
@@ -148,14 +149,12 @@ function createTerminalSystem ({ execFile = childProcess.execFile, readFile = fs
     async getStats () {
       const controllers = await read(p.controllers)
       const stat = parseKeyValues(await read(`${p.sliceDir}/memory.stat`), ' ')
-      const max = (await read(`${p.sliceDir}/memory.max`) || '').trim()
       const cpu = parseKeyValues(await read(`${p.sliceDir}/cpu.stat`), ' ')
       const hasMemory = stat.anon !== undefined
       return {
         memory: {
           controller: /\bmemory\b/.test(controllers || '') && hasMemory,
           anonBytes: hasMemory ? Number(stat.anon) : null,
-          maxBytes: /^\d+$/.test(max) ? Number(max) : null,
           totalBytes: os.totalmem(),
           oomKills: await readOomKills()
         },
@@ -166,4 +165,4 @@ function createTerminalSystem ({ execFile = childProcess.execFile, readFile = fs
   }
 }
 
-module.exports = { createTerminalSystem, UNIT, TMUX_SUDO, MAIN_SESSION, SESSION_NAME, WINDOW_ID }
+module.exports = { createTerminalSystem, TMUX_SUDO, MAIN_SESSION, WINDOW_ID }

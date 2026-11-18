@@ -5,8 +5,8 @@ import Modal from 'react-bootstrap/Modal';
 import Nav from 'react-bootstrap/Nav';
 
 // Same limits as MAX_WINDOWS and MAX_TAB_NAME in server/terminal.js, which enforces them
-export const MAX_TABS = 8;
-export const MAX_TAB_NAME = 32;
+const MAX_TABS = 8;
+const MAX_TAB_NAME = 32;
 
 // Inline name editor: Enter or leaving the field saves, Escape cancels. An empty name returns
 // the tab to automatic naming (name of the running program).

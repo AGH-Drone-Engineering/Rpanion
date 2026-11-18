@@ -14,14 +14,13 @@ afterEach(() => {
 
 const MB = 1024 * 1024
 
-function status ({ controller = true, anonMb = 512, maxMb = null, totalMb = 2048, usageUsec = 0, sampledAt = 0, oomKills = 0 } = {}) {
+function status ({ controller = true, anonMb = 512, totalMb = 2048, usageUsec = 0, sampledAt = 0, oomKills = 0 } = {}) {
   return {
     memory: {
       controller,
       anonBytes: controller ? anonMb * MB : null,
-      maxBytes: maxMb === null ? null : maxMb * MB,
       totalBytes: totalMb * MB,
-      oomKills
+      oomKills: controller ? oomKills : null
     },
     cpu: { usageUsec, cores: 4 },
     sampledAt
@@ -62,18 +61,12 @@ describe('SessionStats', () => {
     expect(div.textContent).toContain('512 MB of 2048 MB')
     expect(div.textContent).toContain('100% of 4 cores')
     expect(div.textContent).toContain('Killed when out of memory: 0')
-    expect(div.querySelector('input[type="range"]')).toBe(null)
     expect(div.querySelectorAll('[aria-label="Help"]')).toHaveLength(1)
-  })
-
-  test('uses memory.max when a limit is set', () => {
-    const { div } = render({ status: status({ maxMb: 1024 }) })
-    expect(div.textContent).toContain('512 MB of 1024 MB')
-    expect(div.querySelector('.progress-bar').getAttribute('aria-valuenow')).toBe('50')
   })
 
   test('shows memory as unavailable without the memory controller', () => {
     const { div } = render({ status: status({ controller: false }) })
     expect(div.textContent).toContain('Memory: unavailable')
+    expect(div.textContent).toContain('Killed when out of memory: unavailable')
   })
 })

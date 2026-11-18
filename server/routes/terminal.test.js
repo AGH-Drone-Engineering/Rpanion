@@ -38,7 +38,7 @@ function stubSystem (overrides = {}) {
     calls,
     getActiveState: async () => ({ installed: true, activeState: 'active' }),
     getStats: async () => ({
-      memory: { controller: true, anonBytes: 1000, maxBytes: null, totalBytes: 5000, oomKills: 2 },
+      memory: { controller: true, anonBytes: 1000, totalBytes: 5000, oomKills: 2 },
       cpu: { usageUsec: 42, cores: 4 },
       sampledAt: 1
     }),

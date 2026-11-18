@@ -9,7 +9,7 @@ import Col from 'react-bootstrap/Col';
 const MB = 1024 * 1024;
 
 // CPU use of the slice in percent of one core, from two usage_usec samples
-export function cpuPercent(previous, current) {
+function cpuPercent(previous, current) {
   if (!previous || !current || previous.usageUsec === null || current.usageUsec === null) return null;
   const elapsedMs = current.sampledAt - previous.sampledAt;
   if (elapsedMs <= 0) return null;
@@ -58,8 +58,7 @@ function SessionStats({ status }) {
 
   const { memory } = status;
   const anonMb = memory.anonBytes === null ? null : Math.round(memory.anonBytes / MB);
-  const limitBytes = memory.maxBytes ?? memory.totalBytes;
-  const limitMb = limitBytes ? Math.round(limitBytes / MB) : null;
+  const limitMb = memory.totalBytes ? Math.round(memory.totalBytes / MB) : null;
   const memPercent = anonMb !== null && limitMb ? Math.min(100, (anonMb / limitMb) * 100) : 0;
   const cpuTotal = cpuTotalPercent(cpu, status.cpu.cores);
 
@@ -80,7 +79,7 @@ function SessionStats({ status }) {
         </Col>
       </Row>
       <div className="mt-2">
-        Killed when out of memory: {memory.oomKills ?? 0}
+        Killed when out of memory: {memory.oomKills ?? 'unavailable'}
         <Help id="kills-help" text={KILLS_HELP} />
       </div>
     </div>

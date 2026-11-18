@@ -55,7 +55,7 @@ beforeAll(() => {
 const STATUS = {
   installed: true,
   activeState: 'active',
-  memory: { controller: true, anonBytes: 512 * 1048576, maxBytes: null, totalBytes: 4096 * 1048576, oomKills: 1 },
+  memory: { controller: true, anonBytes: 512 * 1048576, totalBytes: 4096 * 1048576, oomKills: 1 },
   cpu: { usageUsec: 1000000, cores: 4 },
   sampledAt: 1000
 }
@@ -184,20 +184,20 @@ describe('TerminalSession', () => {
     expect(div.textContent).toContain('Terminal requires authentication to be enabled')
   })
 
-  test('shows memory use against total RAM, OOM kills, and no reserve controls', async () => {
+  test('shows memory use against total RAM and OOM kills', async () => {
     const div = await render()
     await act(async () => {})
     expect(div.textContent).toContain('Memory: 512 MB of 4096 MB')
     expect(div.textContent).toContain('Killed when out of memory: 1')
-    expect(div.querySelector('input[type=range]')).toBe(null)
     expect(div.querySelectorAll('.progress-bar')).toHaveLength(2)
   })
 
   test('memory is shown as unavailable without the memory controller', async () => {
-    status = { ...STATUS, memory: { controller: false, anonBytes: null, maxBytes: null, totalBytes: 4096 * 1048576, oomKills: null } }
+    status = { ...STATUS, memory: { controller: false, anonBytes: null, totalBytes: 4096 * 1048576, oomKills: null } }
     const div = await render()
     await act(async () => {})
     expect(div.textContent).toContain('Memory: unavailable')
+    expect(div.textContent).toContain('Killed when out of memory: unavailable')
   })
 
   describe('tabs', () => {
