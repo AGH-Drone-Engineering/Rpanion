@@ -48,6 +48,7 @@ const createSystemRouter = require('./routes/system.js')
 const { createSystemIdentity } = require('./systemIdentity.js')
 const createTerminalRouter = require('./routes/terminal.js')
 const { createTerminalSystem } = require('./terminalSystem.js')
+const { createTerminalLogs } = require('./terminalLogs.js')
 const { createTerminal } = require('./terminal.js')
 const { createOomWatch } = require('./memoryWatch.js')
 const limiter = RateLimit({
@@ -1406,7 +1407,7 @@ app.post('/api/camera/stop', authenticateToken, (req, res) => {
 
 app.use(createNetworkRouter({ networkManager, authenticateToken }))
 app.use(createSystemRouter({ systemIdentity: createSystemIdentity(), authenticateToken }))
-app.use(createTerminalRouter({ terminalSystem, authenticateToken }))
+app.use(createTerminalRouter({ terminalSystem, authenticateToken, terminalLogs: createTerminalLogs({ listPanes: () => terminalSystem.listPanes() }) }))
 
 // Pass GUI requests to the React app only in production mode
 if (process.env.NODE_ENV !== 'development')

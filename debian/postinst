@@ -26,6 +26,12 @@ case "$1" in
         chown -R rpanion /usr/share/rpanion-server
         chown -R rpanion /etc/rpanion-server
         chown -R rpanion /etc/wireguard || true    # wireguard may not be installed yet
+        # Terminal logs: written by user 1000 (group access), listed and deleted by rpanion
+        TERMINAL_GROUP=$(getent passwd 1000 | cut -d: -f4 | xargs -r getent group | cut -d: -f1 || true)
+        if [ -n "$TERMINAL_GROUP" ]; then
+            chown rpanion:"$TERMINAL_GROUP" /etc/rpanion-server/logs/terminal
+            chmod 2770 /etc/rpanion-server/logs/terminal
+        fi
         chmod +x /usr/share/rpanion-server/app/server/index.js
         systemctl daemon-reload
         systemctl enable rpanion-server

@@ -49,7 +49,13 @@ Rpanion-server allows the user to configure:
 - Video Streaming via an RTSP server
 - Network configuration
 - NTRIP Streaming
-- Logging (tlog and bin logs)
+- Logging (tlog, bin and terminal session logs)
+
+## Log directories
+
+Logs and media are stored in ``/etc/rpanion-server/logs/``: ``telemetry`` (.tlog), ``bin`` (.bin), ``kmz``,
+``terminal`` and ``media`` (photos and videos). An update moves files from the earlier ``flightlogs/`` and
+``media/`` directories (``server/migrate-logs.sh``).
 
 ## Installing
 
@@ -236,6 +242,20 @@ Keys as in Linux terminal emulators: Ctrl+C sends SIGINT, Ctrl+Shift+C copies th
 (Ctrl+Insert and Shift+Insert also work). Dragging selects text in the browser. The mouse wheel scrolls the tmux
 history (or sends arrow keys to full-screen programs); scrolling back to the bottom leaves the history view.
 
+### Session logs
+
+The text of every browser terminal tab (not SSH sessions) is written to
+``/etc/rpanion-server/logs/terminal/<date>_<time>_<tmux pid>_p<pane number>.log``, one file per pane. Files are
+raw terminal output and are synced to the card every 5 s when data was written. A file is limited to 20 MB (the
+next one gets the suffix ``-2``), the directory to 200 MB (the oldest inactive files are deleted). Logging is on by
+default; "Terminal Logs" on the "Flight Logs and Media" page switches it off (creates
+``logs/terminal/.disabled``), deletes inactive logs and downloads a log with escape sequences removed. Logs are
+available only after login.
+
+The directory belongs to ``rpanion`` with the group of user 1000 and mode ``2770``; ``deploy/configure_system.sh``
+and the .deb postinst set that. tmux starts ``log-pane.py`` for each pane through ``pipe-pane -o`` hooks in
+``/usr/local/lib/rpanion-terminal/log.conf``.
+
 ### Out of memory
 
 There is no memory limit: programs of user ``pi`` (this terminal and SSH sessions, ``user-1000.slice``) can use
@@ -264,14 +284,14 @@ installs the sudoers rules and the helper only.
 The sudoers rules let the ``rpanion`` user run ``tmux -N -S /run/rpanion-terminal/tmux.sock *`` as user 1000. The
 tab list is read with ``list-windows`` every 3 s per browser; that one command has ``!log_allowed, !pam_session`` in
 sudoers, so it adds nothing to the journal. All other tmux commands (new, close, rename and select tab) are logged
-as usual. ``tmux.conf`` sources ``/usr/local/lib/rpanion-terminal/log.conf`` if it exists, for session logging;
-the directory belongs to root because tmux runs that file as user 1000.
+as usual. ``tmux.conf`` sources ``/usr/local/lib/rpanion-terminal/log.conf`` if it exists, for session logging
+(``deploy/rpanion-terminal-log.conf``); the directory belongs to root because tmux runs that file as user 1000.
 
 ### Recommendations for programs run from the terminal
 
 - Add a watchdog on the flight controller (for example a Lua script that checks a heartbeat of ``main.py``). The
   ``GUID_TIMEOUT`` parameter does not cover position targets.
-- Log to a file, not only to stdout: the terminal output is not stored.
+- Log to a file as well: terminal logs keep at most 200 MB in total and can be switched off.
 - Handle SIGHUP like SIGTERM. Stopping the session sends SIGTERM to all processes of the session (including ``&``,
   ``nohup`` and ``setsid`` ones) and waits up to 13 s for them to exit before the rest is killed; use that time to
   clean up.

@@ -146,6 +146,17 @@ function createTerminalSystem ({ execFile = childProcess.execFile, readFile = fs
       await tmux(['select-window', '-t', `${session}:${id}`])
     },
 
+    // Panes of all sessions with their tmux server pid and whether a pipe-pane is attached
+    async listPanes () {
+      const out = await tmux(['list-panes', '-a', '-F', '#{pid} #{pane_id} #{pane_pipe}'])
+      const panes = []
+      for (const line of out.split('\n')) {
+        const m = line.match(/^(\d+) %(\d+) ([01])$/)
+        if (m) panes.push({ pid: m[1], pane: m[2], piped: m[3] === '1' })
+      }
+      return panes
+    },
+
     async getStats () {
       const controllers = await read(p.controllers)
       const stat = parseKeyValues(await read(`${p.sliceDir}/memory.stat`), ' ')

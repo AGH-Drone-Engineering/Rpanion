@@ -16,6 +16,13 @@ sudo install -o root -g root -m 755 "$SCRIPT_DIR/../server/rpanion-system.sh" /u
 sudo "$SCRIPT_DIR/../server/migrate-logs.sh"
 sudo chown -R rpanion:rpanion /etc/rpanion-server/logs
 
+## Terminal logs: written by user 1000 (group access), listed and deleted by rpanion
+TERMINAL_GROUP=$(getent passwd 1000 | cut -d: -f4 | xargs -r getent group | cut -d: -f1 || true)
+if [ -n "$TERMINAL_GROUP" ]; then
+    sudo chown rpanion:"$TERMINAL_GROUP" /etc/rpanion-server/logs/terminal
+    sudo chmod 2770 /etc/rpanion-server/logs/terminal
+fi
+
 # Separate fragment from the one written by the .deb postinst, so both install paths work.
 # Validate before install: a broken sudoers fragment disables sudo entirely
 SUDOERS_TMP=$(mktemp)
@@ -48,6 +55,8 @@ sudo install -o root -g root -m 644 "$SCRIPT_DIR/ssh-hostkeys.conf" /etc/systemd
 sudo install -o root -g root -m 755 -d /usr/local/lib/rpanion-terminal
 sudo install -o root -g root -m 644 "$SCRIPT_DIR/rpanion-terminal.tmux.conf" /usr/local/lib/rpanion-terminal/tmux.conf
 sudo install -o root -g root -m 755 "$SCRIPT_DIR/rpanion-terminal-stop.sh" /usr/local/lib/rpanion-terminal/stop.sh
+sudo install -o root -g root -m 755 "$SCRIPT_DIR/rpanion-terminal-log-pane.py" /usr/local/lib/rpanion-terminal/log-pane.py
+sudo install -o root -g root -m 644 "$SCRIPT_DIR/rpanion-terminal-log.conf" /usr/local/lib/rpanion-terminal/log.conf
 sudo install -o root -g root -m 644 "$SCRIPT_DIR/rpanion-terminal.service" /etc/systemd/system/rpanion-terminal.service
 
 ## Out-of-memory handling: the kernel OOM killer stops the largest process; Rpanion is excluded

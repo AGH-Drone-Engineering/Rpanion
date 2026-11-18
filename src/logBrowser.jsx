@@ -16,6 +16,8 @@ class LoggerPage extends basePage {
       BinlogFiles: [],
       KMZlogFiles: [],
       MediaFiles: [],
+      terminalLogFiles: [],
+      terminalLogsEnabled: true,
       diskSpaceStatus: "",
       conversionLogStatus: 'N/A',
       videoStreamStatus: 'N/A',
@@ -52,8 +54,97 @@ class LoggerPage extends basePage {
   }
   componentDidMount() {
     fetch(`/api/logfiles`, {headers: {Authorization: `Bearer ${this.state.token}`}}).then(response => response.json()).then(state => { this.setState(state); this.loadDone() });
+    this.loadTerminalLogs();
     fetch(`/api/diskinfo`, {headers: {Authorization: `Bearer ${this.state.token}`}}).then(response => response.json()).then(state => { this.setState(state) });
     fetch(`/api/logconversioninfo`, {headers: {Authorization: `Bearer ${this.state.token}`}}).then(response => response.json()).then(state => { this.setState(state); this.loadDone() })
+  }
+
+  loadTerminalLogs() {
+    return fetch('/api/terminal/logs', { headers: { Authorization: `Bearer ${this.state.token}` } })
+      .then(response => response.json().catch(() => ({})).then(data => {
+        if (!response.ok) {
+          throw new Error(data.error || response.statusText);
+        }
+        this.setState({ terminalLogFiles: data.files, terminalLogsEnabled: data.enabled });
+      }))
+      .catch(error => {
+        this.setState({ error: "Error loading terminal logs: " + error.message });
+      });
+  }
+
+  handleTerminalLogsEnabled = () => {
+    const enabled = !this.state.terminalLogsEnabled;
+    this.postTerminalLogs('/api/terminal/logs/enabled', { enabled }, 'Error changing terminal logging: ');
+  }
+
+  clearTerminalLogs = () => {
+    this.postTerminalLogs('/api/terminal/logs/clear', {}, 'Error deleting terminal logs: ', (result) => {
+      this.setState({ infoMessage: this.clearResultMessage(result) });
+    });
+  }
+
+  postTerminalLogs(url, payload, errorPrefix, onSuccess) {
+    this.setState({ waiting: true }, () => {
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.state.token}`
+        },
+        body: JSON.stringify(payload)
+      }).then(response => response.json().catch(() => ({})).then(data => {
+          if (!response.ok || data.error) {
+            throw new Error(data.error || response.statusText);
+          }
+          return data;
+        }))
+        .then(result => {
+          if (onSuccess) onSuccess(result);
+          return this.loadTerminalLogs();
+        })
+        .catch(error => {
+          this.setState({ error: errorPrefix + error.message });
+        })
+        .then(() => this.setState({ waiting: false }));
+    });
+  }
+
+  // The download needs the token header, so a plain link cannot be used
+  downloadTerminalLog = (event, name) => {
+    event.preventDefault();
+    fetch('/api/terminal/logs/' + encodeURIComponent(name), { headers: { Authorization: `Bearer ${this.state.token}` } })
+      .then(response => {
+        if (!response.ok) {
+          return response.json().catch(() => ({})).then(data => { throw new Error(data.error || response.statusText); });
+        }
+        return response.blob();
+      })
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      })
+      .catch(error => {
+        this.setState({ error: "Error downloading terminal log: " + error.message });
+      });
+  }
+
+  renderTerminalLogTableData(logfilelist) {
+    return logfilelist.map((log) => {
+      return (
+        <tr key={log.name}>
+          <td><a href="#" onClick={(event) => this.downloadTerminalLog(event, log.name)}>{log.name}</a></td>
+          <td>{log.size} KB</td>
+          <td>{log.modified}</td>
+        </tr>
+      )
+    });
   }
 
   renderTitle() {
@@ -204,6 +295,30 @@ class LoggerPage extends basePage {
             </Accordion.Body>
           </Accordion.Item>
           <Accordion.Item eventKey="3">
+            <Accordion.Header>Terminal Logs</Accordion.Header>
+            <Accordion.Body>
+              <div className="form-group row" style={{ marginBottom: '5px' }}>
+                <div className="col-sm-8">
+                  <Button onClick={this.handleTerminalLogsEnabled} className="btn btn-primary">{this.state.terminalLogsEnabled === true ? 'Disable' : 'Enable'}</Button>
+                </div>
+              </div>
+              <p>Status: {this.state.terminalLogsEnabled === true ? 'Enabled' : 'Disabled'}</p>
+              <div className="form-group row" style={{ marginBottom: '5px' }}>
+                <div className="col-sm-8">
+                <Button id='terminallog' onClick={this.clearTerminalLogs}>Clear inactive logs</Button>
+                </div>
+              </div>
+              <Table id='Terminallogfile' striped bordered hover size="sm">
+                <thead>
+                  <tr><th>File Name</th><th>Size</th><th>Modified</th></tr>
+                </thead>
+                <tbody>
+                  {this.renderTerminalLogTableData(this.state.terminalLogFiles)}
+                </tbody>
+              </Table>
+            </Accordion.Body>
+          </Accordion.Item>
+          <Accordion.Item eventKey="4">
             <Accordion.Header>Photo and Video Files</Accordion.Header>
             <Accordion.Body>
               <p>Photos and video files recorded by Rpanion</p>

@@ -89,6 +89,15 @@ describe('terminalSystem', function () {
       assert.deepStrictEqual(calls, [[...PREFIX, 'list-windows', '-t', `${SESSION}:`, '-F', '#{window_id}\t#{window_index}\t#{window_active}\t#{window_name}']])
     })
 
+    it('listPanes() parses pid, pane id and pipe state', async function () {
+      const { calls, system } = recorder('812 %0 1\n812 %3 0\nbroken\n\n')
+      assert.deepStrictEqual(await system.listPanes(), [
+        { pid: '812', pane: '0', piped: true },
+        { pid: '812', pane: '3', piped: false }
+      ])
+      assert.deepStrictEqual(calls, [[...PREFIX, 'list-panes', '-a', '-F', '#{pid} #{pane_id} #{pane_pipe}']])
+    })
+
     it('uses the fixed tmux commands for window operations', async function () {
       const { calls, system } = recorder()
       await system.newWindow(SESSION)
