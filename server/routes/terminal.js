@@ -4,6 +4,7 @@
  * (server/terminal.js).
  */
 const express = require('express')
+const { pipeline } = require('stream')
 const { param, body, validationResult } = require('express-validator')
 const { sendApiError, sendValidationError } = require('../apiResponses')
 
@@ -42,8 +43,8 @@ function createTerminalRouter ({ terminalSystem, authenticateToken, terminalLogs
 
   route('post', '/api/terminal/logs/clear', [], async () => terminalLogs.clear())
 
-  route('post', '/api/terminal/logs/enabled', [body('enabled').isBoolean().withMessage('enabled must be a boolean')], async (req) => {
-    terminalLogs.setEnabled(req.body.enabled === true || req.body.enabled === 'true')
+  route('post', '/api/terminal/logs/enabled', [body('enabled').isBoolean({ strict: true }).withMessage('enabled must be a boolean')], async (req) => {
+    terminalLogs.setEnabled(req.body.enabled === true)
     return { enabled: terminalLogs.isEnabled() }
   })
 
@@ -54,9 +55,12 @@ function createTerminalRouter ({ terminalSystem, authenticateToken, terminalLogs
       return sendValidationError(res, errors)
     }
     try {
-      const text = terminalLogs.read(req.params.name)
+      const stream = terminalLogs.read(req.params.name)
       res.set('Content-Disposition', `attachment; filename="${req.params.name}"`)
-      return res.type('text/plain; charset=utf-8').send(text)
+      res.type('text/plain; charset=utf-8')
+      return pipeline(stream, res, (err) => {
+        if (err) console.error(`Error streaming terminal log: ${err.message || err}`)
+      })
     } catch (err) {
       console.error(`Error reading terminal log: ${err.message || err}`)
       return sendApiError(res, err.status || 500, err)

@@ -421,6 +421,21 @@ describe('terminal relay', function () {
       assert.ok(events.every(e => e.type === 'terminal'))
     })
 
+    it('does not emit logs:changed when another client attaches to an unchanged window set', async function () {
+      this.timeout(15000)
+      const events = []
+      const watcher = ioClient(`http://127.0.0.1:${port}/`, { forceNew: true, transports: ['websocket'], reconnection: false })
+      clients.push(watcher)
+      watcher.on('logs:changed', (e) => events.push(e))
+      await waitFor(() => watcher.connected, 'watcher connected')
+      await attached()
+      await waitFor(() => events.length === 1, 'event for first list')
+      const second = await attached()
+      await wait(WINDOWS_POLL_MS + 300)
+      assert.strictEqual(second.windowLists.length >= 1, true)
+      assert.strictEqual(events.length, 1)
+    })
+
     it('does not list windows before the client is attached', async function () {
       system.activeState = 'inactive'
       const socket = await connect()

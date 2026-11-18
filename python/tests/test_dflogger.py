@@ -17,8 +17,12 @@ ARMED = 128
 
 
 class FakeHeartbeat:
-    def __init__(self, base_mode):
+    def __init__(self, base_mode, payload=b'hb'):
         self.base_mode = base_mode
+        self.payload = payload
+
+    def get_msgbuf(self):
+        return self.payload
 
 
 class FakeMaster:
@@ -35,6 +39,7 @@ class DFLoggerTlogTest(unittest.TestCase):
         self.logger = dflogger.DataFlashLogger(
             'udp:127.0.0.1:0', tlogdir=self.tlogdir, bindir=self.bindir)
         self.logger.master = FakeMaster()
+        self.logger.rotate_on_disarm = True
 
     def tearDown(self):
         if self.logger.tlogfile is not None:
@@ -68,6 +73,29 @@ class DFLoggerTlogTest(unittest.TestCase):
         self.assertNotEqual(lg.tlogfile.name, first)
         self.assertTrue(lg.tlogfile.name.endswith('2000-01-01_00-00-00.tlog'))
         self.assertEqual(os.path.dirname(lg.tlogfile.name), self.tlogdir)
+
+    def test_no_rotation_without_rotate_on_disarm(self):
+        lg = self.logger
+        lg.rotate_on_disarm = False
+        lg.open_tlog()
+        first = lg.tlogfile.name
+        lg.handle_tlog_heartbeat(FakeHeartbeat(ARMED))
+        lg.handle_tlog_heartbeat(FakeHeartbeat(0))
+        self.assertEqual(lg.tlogfile.name, first)
+
+    def test_disarm_heartbeat_written_before_rotation(self):
+        lg = self.logger
+        lg.open_tlog()
+        first = lg.tlogfile.name
+        lg.handle_tlog_heartbeat(FakeHeartbeat(ARMED, b'armed'))
+        with mock.patch('dflogger.datetime') as dt:
+            dt.now.return_value.strftime.return_value = '2000-01-01_00-00-00'
+            lg.handle_tlog_heartbeat(FakeHeartbeat(0, b'disarm'))
+        self.assertNotEqual(lg.tlogfile.name, first)
+        with open(first, 'rb') as f:
+            data = f.read()
+        self.assertTrue(data.endswith(b'disarm'))
+        self.assertEqual(os.path.getsize(lg.tlogfile.name), 0)
 
     def test_same_second_name_not_reused(self):
         lg = self.logger

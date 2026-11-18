@@ -45,9 +45,10 @@ case "$1" in
         # Validate before install: a broken sudoers fragment disables sudo entirely
         SUDOERS_TMP=$(mktemp)
         cat <<'EOF' > "$SUDOERS_TMP"
-# Window list polled every 3 s by the web terminal
+# Window and pane lists polled by the web terminal
 # Alias names must differ between sudoers fragments
-Cmnd_Alias RPANION_TMUX_POLL_DEB = /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock list-windows *
+Cmnd_Alias RPANION_TMUX_POLL_DEB = /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock list-windows *, \
+  /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock list-panes -a -F *
 Defaults!RPANION_TMUX_POLL_DEB !log_allowed, !pam_session
 rpanion ALL=(ALL) NOPASSWD: \
   /usr/bin/systemctl disable wg-quick@*, \

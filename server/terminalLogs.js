@@ -4,10 +4,12 @@
  */
 const fs = require('fs')
 const path = require('path')
+const { Transform, pipeline } = require('stream')
 const logpaths = require('./paths.js')
 
 const FILE_NAME = /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_(\d+)_p(\d+)(?:-(\d+))?\.log$/
 const DISABLED_FLAG = '.disabled'
+const NO_SERVER = /no server running|error connecting/i
 
 // Removes escape sequences; a bare \r overwrites the start of the line, \r\n is kept
 function stripAnsi (text) {
@@ -36,6 +38,23 @@ function overwriteLine (line) {
   return out.join('')
 }
 
+function lineStripper () {
+  let rest = ''
+  return new Transform({
+    decodeStrings: false,
+    transform (chunk, enc, cb) {
+      const lines = (rest + chunk).split('\n')
+      rest = lines.pop()
+      for (const line of lines) this.push(stripAnsi(line + '\n'))
+      cb()
+    },
+    flush (cb) {
+      if (rest) this.push(stripAnsi(rest))
+      cb()
+    }
+  })
+}
+
 function createTerminalLogs ({ dir = logpaths.terminalLogDir, listPanes = async () => [] } = {}) {
   const flagPath = path.join(dir, DISABLED_FLAG)
 
@@ -51,7 +70,13 @@ function createTerminalLogs ({ dir = logpaths.terminalLogDir, listPanes = async 
     for (const name of names) {
       const m = FILE_NAME.exec(name)
       if (!m) continue
-      const stat = fs.statSync(path.join(dir, name))
+      let stat
+      try {
+        stat = fs.statSync(path.join(dir, name))
+      } catch (e) {
+        if (e.code === 'ENOENT') continue
+        throw e
+      }
       files.push({ name, pid: m[1], pane: m[2], seq: Number(m[3] || 1), stat })
     }
     return files
@@ -63,7 +88,7 @@ function createTerminalLogs ({ dir = logpaths.terminalLogDir, listPanes = async 
     try {
       panes = await listPanes()
     } catch (e) {
-      // No tmux server: no file is being written
+      if (!NO_SERVER.test(e.message || '')) throw e
     }
     const piped = new Set(panes.filter(p => p.piped).map(p => `${p.pid}_${p.pane}`))
     const newest = new Map()
@@ -94,7 +119,13 @@ function createTerminalLogs ({ dir = logpaths.terminalLogDir, listPanes = async 
 
     async list () {
       const files = entries()
-      const active = await activeNames(files)
+      let active
+      try {
+        active = await activeNames(files)
+      } catch (e) {
+        console.error(`Cannot query tmux panes: ${e.message || e}`)
+        active = new Set(files.map(f => f.name))
+      }
       return files
         .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs)
         .map(f => ({
@@ -122,15 +153,16 @@ function createTerminalLogs ({ dir = logpaths.terminalLogDir, listPanes = async 
       return result
     },
 
-    // Text of one log without escape sequences; null when the file does not exist
+    // Stream of one log without escape sequences
     read (name) {
       if (!FILE_NAME.test(name)) {
         const err = new Error('Invalid log name')
         err.status = 400
         throw err
       }
+      const file = path.join(dir, name)
       try {
-        return stripAnsi(fs.readFileSync(path.join(dir, name), 'utf8'))
+        fs.accessSync(file, fs.constants.R_OK)
       } catch (e) {
         if (e.code === 'ENOENT') {
           const err = new Error('Log not found')
@@ -139,6 +171,9 @@ function createTerminalLogs ({ dir = logpaths.terminalLogDir, listPanes = async 
         }
         throw e
       }
+      const out = lineStripper()
+      pipeline(fs.createReadStream(file, { encoding: 'utf8' }), out, () => {})
+      return out
     }
   }
 }

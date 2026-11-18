@@ -82,10 +82,44 @@ describe('terminal logs', function () {
       assert.deepStrictEqual(fs.readdirSync(dir).sort(), ['.disabled', B])
     })
 
-    it('treats every file as inactive when tmux cannot be queried', async function () {
+    it('treats every file as inactive when no tmux server is running', async function () {
       put(A)
+      for (const message of ['no server running on /run/x.sock', 'error connecting to /run/x.sock (No such file or directory)']) {
+        const logs = createTerminalLogs({ dir, listPanes: async () => { throw new Error(message) } })
+        assert.deepStrictEqual(await logs.list().then(l => l.map(f => f.active)), [false])
+      }
       const logs = createTerminalLogs({ dir, listPanes: async () => { throw new Error('no server running') } })
       assert.deepStrictEqual(await logs.clear(), { deleted: 1, skipped: 0 })
+    })
+
+    it('clear() fails without deleting and list() marks all active on other tmux errors', async function () {
+      put(A)
+      put(B)
+      const logs = createTerminalLogs({ dir, listPanes: async () => { throw new Error('sudo: a password is required') } })
+      await assert.rejects(() => logs.clear(), /password is required/)
+      assert.strictEqual(fs.readdirSync(dir).length, 2)
+      assert.deepStrictEqual((await logs.list()).map(f => f.active), [true, true])
+    })
+
+    it('skips files that vanish while listing', async function () {
+      put(A)
+      put(B)
+      const realStat = fs.statSync
+      fs.statSync = (p, ...rest) => {
+        if (String(p).endsWith(B)) {
+          const e = new Error('gone')
+          e.code = 'ENOENT'
+          throw e
+        }
+        return realStat(p, ...rest)
+      }
+      try {
+        const logs = createTerminalLogs({ dir })
+        assert.deepStrictEqual((await logs.list()).map(f => f.name), [A])
+        assert.deepStrictEqual(await logs.clear(), { deleted: 1, skipped: 0 })
+      } finally {
+        fs.statSync = realStat
+      }
     })
   })
 
@@ -104,9 +138,22 @@ describe('terminal logs', function () {
   })
 
   describe('read()', function () {
-    it('returns the text without escape sequences', function () {
-      put(A, '\x1b[1mbold\x1b[0m\r\nline\r\n')
-      assert.strictEqual(createTerminalLogs({ dir }).read(A), 'bold\r\nline\r\n')
+    const slurp = (stream) => new Promise((resolve, reject) => {
+      let out = ''
+      stream.on('data', c => { out += c })
+      stream.on('end', () => resolve(out))
+      stream.on('error', reject)
+    })
+
+    it('streams the text without escape sequences', async function () {
+      put(A, '\x1b[1mbold\x1b[0m\r\nline\r\n10%\r100%\r\ntail')
+      assert.strictEqual(await slurp(createTerminalLogs({ dir }).read(A)), 'bold\r\nline\r\n100%\r\ntail')
+    })
+
+    it('keeps multibyte characters and long files intact', async function () {
+      const line = 'zażółć gęślą jaźń\r\n'
+      put(A, line.repeat(20000))
+      assert.strictEqual(await slurp(createTerminalLogs({ dir }).read(A)), line.repeat(20000))
     })
 
     it('rejects names that are not log files and reports a missing file', function () {

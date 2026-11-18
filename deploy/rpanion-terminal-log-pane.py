@@ -13,19 +13,20 @@ from datetime import datetime
 
 LOG_DIR = os.environ.get('RPANION_TERMINAL_LOG_DIR', '/etc/rpanion-server/logs/terminal')
 MAX_FILE_BYTES = int(os.environ.get('RPANION_TERMINAL_LOG_MAX_FILE', 20 * 1024 * 1024))
-MAX_DIR_BYTES = int(os.environ.get('RPANION_TERMINAL_LOG_MAX_DIR', 200 * 1024 * 1024))
+MIN_FREE_BYTES = int(os.environ.get('RPANION_TERMINAL_LOG_MIN_FREE', 2 * 1024 ** 3))
 SYNC_INTERVAL = 5
-RECENT_SECONDS = 60
+LOG_NAME = re.compile(r'^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d_(\d+)_p(\d+)(?:-(\d+))?\.log$')
 
 
 class PaneLogger:
-    def __init__(self, directory, tmux_pid, pane_id, max_file=MAX_FILE_BYTES, max_dir=MAX_DIR_BYTES,
-                 sync_interval=SYNC_INTERVAL, clock=time.time):
+    def __init__(self, directory, tmux_pid, pane_id, max_file=MAX_FILE_BYTES, min_free=MIN_FREE_BYTES,
+                 sync_interval=SYNC_INTERVAL, clock=time.time, statvfs=os.statvfs):
         self.directory = directory
         self.pane = re.sub(r'\D', '', pane_id) or '0'
         self.tmux_pid = tmux_pid
         self.max_file = max_file
-        self.max_dir = max_dir
+        self.min_free = min_free
+        self.statvfs = statvfs
         self.sync_interval = sync_interval
         self.clock = clock
         self.fd = None
@@ -35,6 +36,8 @@ class PaneLogger:
         self.path = None
         self.dirty = False
         self.disabled = False
+        self.paused = False
+        self.last_space_check = None
         self.last_sync = clock()
         self.last_flag_check = 0
 
@@ -50,39 +53,57 @@ class PaneLogger:
         if self.disabled:
             self.close()
 
-    def log_files(self):
-        files = []
+    def free_bytes(self):
+        st = self.statvfs(self.directory)
+        return st.f_bavail * st.f_frsize
+
+    def deletable_files(self):
+        parsed = []
         for name in os.listdir(self.directory):
-            if not name.endswith('.log'):
+            m = LOG_NAME.match(name)
+            if not m:
                 continue
             path = os.path.join(self.directory, name)
             try:
-                st = os.stat(path)
+                mtime = os.stat(path).st_mtime
             except OSError:
                 continue
-            files.append((st.st_mtime, st.st_size, path))
-        return sorted(files)
+            parsed.append((m.group(1), m.group(2), int(m.group(3) or 1), mtime, path))
+        newest = {}
+        for pid, pane, seq, _, _ in parsed:
+            if pid == self.tmux_pid and seq > newest.get(pane, 0):
+                newest[pane] = seq
+        files = [(mtime, path) for pid, pane, seq, mtime, path in parsed
+                 if not (pid == self.tmux_pid and seq == newest[pane]) and path != self.path]
+        return [path for _, path in sorted(files)]
 
-    def enforce_dir_limit(self):
-        files = self.log_files()
-        total = sum(f[1] for f in files)
-        now = self.clock()
-        for mtime, size, path in files:
-            if total <= self.max_dir:
-                break
-            if path == self.path or now - mtime < RECENT_SECONDS:
-                continue
+    # Deletes the oldest unused logs until free space reaches min_free; False if it cannot
+    def ensure_free_space(self):
+        if self.free_bytes() >= self.min_free:
+            return True
+        for path in self.deletable_files():
             try:
                 os.unlink(path)
-                total -= size
             except OSError:
-                pass
+                continue
+            if self.free_bytes() >= self.min_free:
+                return True
+        return False
+
+    def check_space(self, force=False):
+        now = self.clock()
+        if not force and self.last_space_check is not None and now - self.last_space_check < self.sync_interval:
+            return
+        self.last_space_check = now
+        self.paused = not self.ensure_free_space()
 
     def open_next(self):
         self.close()
         if self.stamp is None:
             self.stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        self.enforce_dir_limit()
+        self.check_space(force=True)
+        if self.paused:
+            return False
         while True:
             self.seq += 1
             suffix = '' if self.seq == 1 else f'-{self.seq}'
@@ -95,14 +116,17 @@ class PaneLogger:
         self.path = path
         self.size = 0
         self.dirty = False
+        return True
 
     def write(self, data):
         self.check_flag()
         if self.disabled:
             return
-        while data:
+        self.check_space()
+        while data and not self.paused:
             if self.fd is None or self.size >= self.max_file:
-                self.open_next()
+                if not self.open_next():
+                    return
             chunk = data[:self.max_file - self.size]
             os.write(self.fd, chunk)
             self.size += len(chunk)
@@ -144,6 +168,7 @@ def main():
                 logger.write(data)
             else:
                 logger.check_flag()
+                logger.check_space()
                 logger.sync()
     finally:
         logger.close()

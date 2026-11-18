@@ -247,7 +247,8 @@ history (or sends arrow keys to full-screen programs); scrolling back to the bot
 The text of every browser terminal tab (not SSH sessions) is written to
 ``/etc/rpanion-server/logs/terminal/<date>_<time>_<tmux pid>_p<pane number>.log``, one file per pane. Files are
 raw terminal output and are synced to the card every 5 s when data was written. A file is limited to 20 MB (the
-next one gets the suffix ``-2``), the directory to 200 MB (the oldest inactive files are deleted). Logging is on by
+next one gets the suffix ``-2``), logging pauses and the oldest logs not in use are deleted while free space on the card is below 2 GiB
+(``RPANION_TERMINAL_LOG_MIN_FREE``, bytes). Logging is on by
 default; "Terminal Logs" on the "Flight Logs and Media" page switches it off (creates
 ``logs/terminal/.disabled``), deletes inactive logs and downloads a log with escape sequences removed. Logs are
 available only after login.
@@ -291,7 +292,7 @@ as usual. ``tmux.conf`` sources ``/usr/local/lib/rpanion-terminal/log.conf`` if 
 
 - Add a watchdog on the flight controller (for example a Lua script that checks a heartbeat of ``main.py``). The
   ``GUID_TIMEOUT`` parameter does not cover position targets.
-- Log to a file as well: terminal logs keep at most 200 MB in total and can be switched off.
+- Log to a file as well: terminal logs are deleted oldest first when free space drops below 2 GiB and can be switched off.
 - Handle SIGHUP like SIGTERM. Stopping the session sends SIGTERM to all processes of the session (including ``&``,
   ``nohup`` and ``setsid`` ones) and waits up to 13 s for them to exit before the rest is killed; use that time to
   clean up.

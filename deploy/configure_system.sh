@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sudo install -o root -g root -m 755 "$SCRIPT_DIR/../server/rpanion-system.sh" /usr/local/sbin/rpanion-system
 
 ## Time zone of file names and logs; RPANION_TIMEZONE overrides
-sudo timedatectl set-timezone "${RPANION_TIMEZONE:-Europe/Warsaw}"
+sudo timedatectl set-timezone "${RPANION_TIMEZONE:-Europe/Warsaw}" || echo "Warning: time zone not set"
 
 ## Log directory layout (telemetry, bin, kmz, terminal, media)
 sudo "$SCRIPT_DIR/../server/migrate-logs.sh"
@@ -30,9 +30,10 @@ fi
 # Validate before install: a broken sudoers fragment disables sudo entirely
 SUDOERS_TMP=$(mktemp)
 cat <<'SUDOERS' > "$SUDOERS_TMP"
-# Window list polled every 3 s by the web terminal
+# Window and pane lists polled by the web terminal
 # Alias names must differ between sudoers fragments
-Cmnd_Alias RPANION_TMUX_POLL_IMAGE = /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock list-windows *
+Cmnd_Alias RPANION_TMUX_POLL_IMAGE = /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock list-windows *, \
+  /usr/bin/tmux -N -S /run/rpanion-terminal/tmux.sock list-panes -a -F *
 Defaults!RPANION_TMUX_POLL_IMAGE !log_allowed, !pam_session
 rpanion ALL=(ALL) NOPASSWD: \
   /usr/local/sbin/rpanion-system hostname *, \

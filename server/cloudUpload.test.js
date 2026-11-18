@@ -73,6 +73,26 @@ describe('Cloud Upload Functions', function () {
     clearInterval(cloudVar.intervalObj)
   })
 
+  it('#cloudsyncnow() starts root, kmz and media syncs and skips those still running', function () {
+    settings.clear()
+    const cloudVar = new CloudTest(settings)
+    clearInterval(cloudVar.intervalObj)
+    cloudVar.setSettingsBin(true, true, true, 'user@host:/dest', false, false, false)
+    const calls = []
+    cloudVar.runRsync = (source, destination, protectedPaths) => {
+      calls.push([source, destination, protectedPaths])
+      return { exitCode: null }
+    }
+    cloudVar.syncNow()
+    assert.deepEqual(calls, [
+      [cloudVar.logSources, 'user@host:/dest', ['media/', 'kmzlogs/']],
+      [logpaths.kmzDir, 'user@host:/dest/kmzlogs', []],
+      [logpaths.mediaDir, 'user@host:/dest/media', []]
+    ])
+    cloudVar.syncNow()
+    assert.equal(calls.length, 3)
+  })
+
   it('#cloudstatusregardlessofenabled()', function () {
     // "Upload Now" can trigger a sync even while uploadEnabled is off, so
     // its status should be reported regardless of that setting
@@ -95,20 +115,31 @@ describe('Cloud Upload Functions', function () {
       return cloudVar
     }
 
-    it('#logs upload sends the bin folder without include patterns', function () {
+    it('#logs upload merges telemetry and bin logs into the destination root', function () {
       const cloudVar = make(false)
-      assert.equal(cloudVar.logsFolder, logpaths.binDir)
-      const args = cloudVar.buildRsyncArgs(cloudVar.logsFolder, 'user@host:/dest', ['media/'])
+      assert.deepEqual(cloudVar.logSources, [logpaths.tlogDir, logpaths.binDir])
+      const args = cloudVar.buildRsyncArgs(cloudVar.logSources, 'user@host:/dest', ['media/', 'kmzlogs/'])
       assert.ok(!args.some(a => a.startsWith('--include')))
       assert.ok(!args.includes('--delete'))
-      assert.deepEqual(args.slice(-2), [logpaths.binDir + '/', 'user@host:/dest'])
+      assert.ok(!args.some(a => a.startsWith('--filter')))
+      assert.deepEqual(args.slice(-3), [logpaths.tlogDir + '/', logpaths.binDir + '/', 'user@host:/dest'])
     })
 
-    it('#delete keeps the remote media folder when syncing logs', function () {
+    it('#delete keeps the remote media and kmzlogs folders when syncing the root', function () {
       const cloudVar = make(true)
-      const args = cloudVar.buildRsyncArgs(cloudVar.logsFolder, 'user@host:/dest', ['media/'])
+      const args = cloudVar.buildRsyncArgs(cloudVar.logSources, 'user@host:/dest', ['media/', 'kmzlogs/'])
       assert.ok(args.includes('--delete'))
       assert.ok(args.includes('--filter=P media/'))
+      assert.ok(args.includes('--filter=P kmzlogs/'))
+    })
+
+    it('#kmz upload goes to the kmzlogs subfolder', function () {
+      const cloudVar = make(true)
+      assert.equal(cloudVar.kmzFolder, logpaths.kmzDir)
+      const args = cloudVar.buildRsyncArgs(cloudVar.kmzFolder, 'user@host:/dest/kmzlogs', [])
+      assert.ok(args.includes('--delete'))
+      assert.ok(!args.some(a => a.startsWith('--filter')))
+      assert.deepEqual(args.slice(-2), [logpaths.kmzDir + '/', 'user@host:/dest/kmzlogs'])
     })
 
     it('#media upload goes to the media subfolder', function () {

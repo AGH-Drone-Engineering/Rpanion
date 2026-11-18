@@ -385,14 +385,27 @@ class DataFlashLogger:
         self.tlog_dirty = False
         print(f"TLOG: {tlog_filename}", flush=True)
 
-    def handle_tlog_heartbeat(self, msg):
-        """Rotate the tlog on the autopilot armed -> disarmed transition"""
-        if not self.master.probably_vehicle_heartbeat(msg):
+    def write_tlog(self, msg):
+        if self.tlogfile is None:
             return
-        armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
-        was_armed = self.tlog_armed
-        self.tlog_armed = armed
-        if was_armed and not armed:
+        try:
+            usec = self.get_usec()
+            self.tlogfile.write(bytearray(struct.pack('>Q', usec) + msg.get_msgbuf()))
+            self.tlogfile.flush()
+            self.tlog_dirty = True
+        except Exception as e:
+            if self.verbose:
+                print(f"Error writing to tlog: {e}")
+
+    def handle_tlog_heartbeat(self, msg):
+        """Write a HEARTBEAT to the tlog; with rotate_on_disarm, rotate after the disarm HEARTBEAT"""
+        disarmed = False
+        if self.master.probably_vehicle_heartbeat(msg):
+            armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+            disarmed = self.tlog_armed and not armed
+            self.tlog_armed = armed
+        self.write_tlog(msg)
+        if disarmed and self.rotate_on_disarm:
             print("DFLogger: Vehicle disarmed, rotating TLOG", flush=True)
             self.open_tlog()
 
@@ -578,15 +591,8 @@ class DataFlashLogger:
                                 self.handle_tlog_heartbeat(msg)
                             except Exception as e:
                                 print(f"DFLogger: Error rotating TLOG: {e}", flush=True)
-                        if self.tlogfile is not None:
-                            try:
-                                usec = self.get_usec()
-                                self.tlogfile.write(bytearray(struct.pack('>Q', usec) + msg.get_msgbuf()))
-                                self.tlogfile.flush()
-                                self.tlog_dirty = True
-                            except Exception as e:
-                                if self.verbose:
-                                    print(f"Error writing to tlog: {e}")
+                        else:
+                            self.write_tlog(msg)
                 else:
                     # Perform idle tasks
                     self.idle_task()

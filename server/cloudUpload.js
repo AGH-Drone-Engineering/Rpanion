@@ -23,12 +23,15 @@ class cloudUpload {
       interval: 20
     }
 
-    this.logsFolder = logpaths.binDir
+    this.logSources = [logpaths.tlogDir, logpaths.binDir]
+    this.kmzFolder = logpaths.kmzDir
     this.mediaFolder = logpaths.mediaDir
 
     this.rsyncPidLogs = null
+    this.rsyncPidKmz = null
     this.rsyncPidMedia = null
     this.lastErrorLogs = ''
+    this.lastErrorKmz = ''
     this.lastErrorMedia = ''
 
     // load settings
@@ -66,8 +69,12 @@ class cloudUpload {
     }
     // Skip a category that's still mid-sync - large media can take longer than one interval.
     if (this.options.uploadLogs && !this.isRunning(this.rsyncPidLogs)) {
-      this.rsyncPidLogs = this.runRsync(this.logsFolder, this.options.binUploadLink, ['media/'],
+      this.rsyncPidLogs = this.runRsync(this.logSources, this.options.binUploadLink, ['media/', 'kmzlogs/'],
         (error) => { this.lastErrorLogs = error })
+    }
+    if (this.options.uploadLogs && !this.isRunning(this.rsyncPidKmz)) {
+      this.rsyncPidKmz = this.runRsync(this.kmzFolder, this.options.binUploadLink + '/kmzlogs', [],
+        (error) => { this.lastErrorKmz = error })
     }
     if (this.options.uploadMedia && !this.isRunning(this.rsyncPidMedia)) {
       // Own subfolder on the remote end so media doesn't mix in with logs
@@ -91,7 +98,7 @@ class cloudUpload {
     return this.fcManager.m.statusArmed ? 'armed' : 'disarmed'
   }
 
-  // rsync arguments; protectedPaths are remote paths kept when --delete is used
+  // rsync arguments; source is one folder or a list merged into the destination; protectedPaths are remote paths kept when --delete is used
   buildRsyncArgs (source, destination, protectedPaths) {
     const args = []
 
@@ -111,14 +118,14 @@ class cloudUpload {
       args.push('--delete')
     }
 
-    args.push(source + '/', destination)
+    args.push(...[].concat(source).map(src => src + '/'), destination)
     return args
   }
 
   // Syncs source/ to destination over ssh. onDone(error) fires once rsync
   // finishes, '' on success.
   runRsync (source, destination, protectedPaths, onDone) {
-    console.log('Syncing', source, 'to', destination)
+    console.log('Syncing', [].concat(source).join(' '), 'to', destination)
     const args = this.buildRsyncArgs(source, destination, protectedPaths)
 
     let outputBuffer = ''
@@ -155,6 +162,9 @@ class cloudUpload {
   quitting () {
     if (this.rsyncPidLogs) {
       this.rsyncPidLogs.kill()
+    }
+    if (this.rsyncPidKmz) {
+      this.rsyncPidKmz.kill()
     }
     if (this.rsyncPidMedia) {
       this.rsyncPidMedia.kill()
@@ -228,7 +238,10 @@ class cloudUpload {
   // "Upload Now" can trigger one even while automatic uploads are off.
   conStatusStr () {
     const active = []
-    if (this.options.uploadLogs) active.push({ pid: this.rsyncPidLogs, error: this.lastErrorLogs })
+    if (this.options.uploadLogs) {
+      active.push({ pid: this.rsyncPidLogs, error: this.lastErrorLogs })
+      active.push({ pid: this.rsyncPidKmz, error: this.lastErrorKmz })
+    }
     if (this.options.uploadMedia) active.push({ pid: this.rsyncPidMedia, error: this.lastErrorMedia })
 
     if (active.some(a => this.isRunning(a.pid))) {

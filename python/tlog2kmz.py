@@ -55,20 +55,17 @@ def convert_tlog_files(folder, kmzdir):
         return True
     os.makedirs(kmzdir, exist_ok=True)
     latest_file = max(mavlog, key=os.path.getctime)
-    kmzlogs = glob.glob(os.path.join(kmzdir, "*.kmz"))
+    kmz_names = {os.path.basename(k) for k in glob.glob(os.path.join(kmzdir, "*.kmz"))}
     passed = True
     for m in mavlog:
 
-        # get the logID without path and extension
-        current_log = m[m.rfind('/') + 1:-5]
-
         # Do not reprocess a TLOG when it is the latest
-        if (current_log in latest_file):
+        if m == latest_file:
             print("[tlog2kmz.py] Ignoring {file} seens being in use.".format(file=m))
             continue
 
         # Do not reprocess a TLOG
-        if (any(current_log in word for word in kmzlogs)):
+        if os.path.basename(m) + '.kmz' in kmz_names:
             # print("[tlog2kmz.py] KMZ file for {file} already exists, ignoring".format(file=m))
             continue
 

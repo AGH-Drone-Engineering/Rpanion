@@ -35,15 +35,15 @@ for rule in '/usr/sbin/ip addr add \* dev \*' '/usr/sbin/ip addr del \* dev \*' 
     fi
 done
 
-# The polled command is the only one without a log entry; the alias must be exactly that command
-# and must not be a catch-all.
+# The polled commands are the only ones without a log entry; the alias must be exactly those
+# commands and must not be a catch-all.
 check_poll_alias() {
-    local file="$1" label="$2" alias
-    alias=$(sed -n -E 's/^Cmnd_Alias +([A-Z_]*TMUX_POLL[A-Z_]*) *= *\/usr\/bin\/tmux -N -S \/run\/rpanion-terminal\/tmux\.sock list-windows \*$/\1/p' "$file")
+    local file="$1" label="$2" alias sock='\/usr\/bin\/tmux -N -S \/run\/rpanion-terminal\/tmux\.sock'
+    alias=$(sed -n -E ':a;/\\$/{N;s/\\\n */ /;ba};s/^Cmnd_Alias +([A-Z_]*TMUX_POLL[A-Z_]*) *= *'"$sock"' list-windows \*, *'"$sock"' list-panes -a -F \*$/\1/p' "$file")
     if [ -z "$alias" ]; then
-        echo "FAIL - $label: poll alias for 'tmux ... list-windows *' missing"; FAILS=$((FAILS + 1)); return
+        echo "FAIL - $label: poll alias for 'tmux ... list-windows *' and 'list-panes -a -F *' missing"; FAILS=$((FAILS + 1)); return
     fi
-    echo "ok   - $label: poll alias $alias is limited to list-windows"
+    echo "ok   - $label: poll alias $alias is limited to list-windows and list-panes"
     if grep -Eq "^Defaults!$alias +!log_allowed, *!pam_session *$" "$file"; then
         echo "ok   - $label: $alias is not logged and opens no PAM session"
     else

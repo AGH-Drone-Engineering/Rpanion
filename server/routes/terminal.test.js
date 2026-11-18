@@ -1,5 +1,6 @@
 const assert = require('assert')
 const http = require('http')
+const { Readable } = require('stream')
 const express = require('express')
 const createTerminalRouter = require('./terminal')
 
@@ -45,7 +46,7 @@ function stubLogs (overrides = {}) {
     setEnabled: (enabled) => { calls.push(['setEnabled', enabled]) },
     list: async () => [{ name: 'a.log', size: 1, modified: 'x', active: false }],
     clear: async () => ({ deleted: 2, skipped: 1 }),
-    read: (name) => `text of ${name}`,
+    read: (name) => Readable.from([`text of ${name}`]),
     ...overrides
   }
 }
@@ -135,6 +136,25 @@ describe('terminal router', function () {
       const bad = await request(server, 'POST', '/api/terminal/logs/enabled', { enabled: 'maybe' })
       assert.strictEqual(bad.status, 422)
       assert.strictEqual(logs.calls.length, 1)
+    })
+
+    it('POST /api/terminal/logs/enabled accepts only true and false', async function () {
+      const logs = stubLogs()
+      server = await startApp(stubSystem(), undefined, logs)
+      for (const enabled of [1, 0, '1', '0', 'true', 'false']) {
+        const res = await request(server, 'POST', '/api/terminal/logs/enabled', { enabled })
+        assert.strictEqual(res.status, 422, String(enabled))
+      }
+      assert.strictEqual(logs.calls.length, 0)
+      await request(server, 'POST', '/api/terminal/logs/enabled', { enabled: true })
+      assert.deepStrictEqual(logs.calls, [['setEnabled', true]])
+    })
+
+    it('POST /api/terminal/logs/clear returns 500 with the message when clearing fails', async function () {
+      server = await startApp(stubSystem(), undefined, stubLogs({ clear: async () => { throw new Error('sudo: a password is required') } }))
+      const res = await request(server, 'POST', '/api/terminal/logs/clear')
+      assert.strictEqual(res.status, 500)
+      assert.match(res.body.error, /password is required/)
     })
 
     it('GET /api/terminal/logs/:name sends the text as an attachment', async function () {
