@@ -144,8 +144,7 @@ class deviceSettings extends basePage {
       <h4 className="mt-4">Access point</h4>
       <p><a href="/network">WiFi access point settings</a></p>
       <h4 className="mt-4">Web UI users</h4>
-      <p><i>Manage access to Web GUI</i></p>
-      <p>Add and remove user access to Rpanion-server. Usernames and passwords must be 2-20 characters.</p>
+      <p>Logins for this web panel, including the terminal. Usernames and passwords must be 2-20 characters.</p>
       <Table id='users' striped bordered hover size="sm">
       <thead>
         <tr>
