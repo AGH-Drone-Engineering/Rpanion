@@ -112,7 +112,7 @@ class AboutPage extends basePage {
   renderStatCard (title, values, value, details, limits, chart) {
     const color = levelColor(value, limits)
     return (
-      <Col xs={12} sm={4} className="mb-3">
+      <Col xs={12} sm={6} lg={3} className="mb-3">
         <Card className="h-100">
           <Card.Body className="p-2">
             <div className="text-body-secondary small">{title}</div>
@@ -137,18 +137,60 @@ class AboutPage extends basePage {
     const usage = (used, total) => (used !== null && used !== undefined && total)
       ? `${(used / GB).toFixed(1)} / ${(total / GB).toFixed(1)} GB` : ''
 
+    const load = series('cpuPercent')
     const cpu = series('cpuTemp')
     const ram = series('ramPercent')
     const disk = series('diskPercent')
     const temp = { format: v => v.toFixed(1) + ' °C', formatY: v => v + '°', scale: tempScale(cpu) }
     const pct = { format: v => v.toFixed(0) + ' %', formatY: v => v + '%', scale: PERCENT_SCALE }
+    const coreCount = latest.cpuCores?.length ?? samples.findLast(s => s.cpuCores)?.cpuCores.length ?? 0
+    const loadDetails = [coreCount ? `${coreCount} cores` : '', rangeText(load, '%')].filter(Boolean).join(' · ')
 
     return (
       <Row>
+        {this.renderStatCard('CPU usage', load, latest.cpuPercent, loadDetails, USAGE_LIMITS, pct)}
         {this.renderStatCard('CPU temperature', cpu, latest.cpuTemp, rangeText(cpu, '°'), TEMP_LIMITS, temp)}
         {this.renderStatCard('RAM used', ram, latest.ramPercent, usage(latest.ramUsed, latest.ramTotal), USAGE_LIMITS, pct)}
         {this.renderStatCard('Disk used (/)', disk, latest.diskPercent, usage(latest.diskUsed, latest.diskTotal), USAGE_LIMITS, pct)}
+        {this.renderCoreCharts(coreCount)}
       </Row>
+    )
+  }
+
+  renderCoreCharts (coreCount) {
+    if (coreCount === 0) return null
+    const samples = this.state.statsSamples
+    const latest = this.state.statsLatest?.cpuCores
+    const cores = Array.from({ length: coreCount }, (_, i) => ({
+      values: samples.map(s => s.cpuCores?.length === coreCount ? s.cpuCores[i] : null),
+      value: latest?.length === coreCount ? latest[i] : null
+    }))
+    const ticks = this.timeTicks()
+    const xTicks = ticks.map((t, i) => (i === 0 || i === ticks.length - 1) ? t : { ...t, label: '' })
+    return (
+      <Col xs={12} className="mb-3">
+        <Card>
+          <Card.Body className="p-2">
+            <div className="text-body-secondary small mb-1">CPU usage per core</div>
+            <div className="cpu-cores">
+              {cores.map((core, i) => {
+                const color = levelColor(core.value, USAGE_LIMITS)
+                return (
+                  <div key={i}>
+                    <div className="small d-flex justify-content-between">
+                      <span className="text-body-secondary">cpu{i}</span>
+                      <span style={{ color }}>{core.value === null || core.value === undefined ? 'n/a' : core.value.toFixed(0) + ' %'}</span>
+                    </div>
+                    <Sparkline compact values={core.values} capacity={this.state.statsCapacity} color={color}
+                      label={`cpu${i} usage history`} {...PERCENT_SCALE} yTicks={[0, 50, 100]}
+                      formatY={v => v + '%'} xTicks={xTicks} />
+                  </div>
+                )
+              })}
+            </div>
+          </Card.Body>
+        </Card>
+      </Col>
     )
   }
 

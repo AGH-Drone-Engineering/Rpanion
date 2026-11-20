@@ -43,6 +43,18 @@
   white-space: nowrap;
 }
 
+.sparkline-compact {
+  grid-template-rows: 40px auto;
+  margin: 10px 0 0;
+  font-size: 0.6rem;
+}
+
+.cpu-cores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px 12px;
+}
+
 .sparkline-grid line {
   stroke: var(--bs-secondary-color);
   stroke-opacity: 0.18;
