@@ -57,7 +57,7 @@ class AboutPage extends basePage {
       SYSName: '',
       HATName: {},
       diskSpaceStatus: '',
-      showModal: false,
+      powerAction: null,
       showModalResult: "",
       showResetModal: false,
       resetMessage: "",
@@ -152,21 +152,18 @@ class AboutPage extends basePage {
     )
   }
 
-  confirmShutdown = () => {
-    //user clicked the shutdown button
-    // modal events take it from here
-    this.setState({ showModal: true });
+  confirmPowerAction = (action) => {
+    this.setState({ powerAction: action });
   }
 
-  handleCloseModal = () => {
-    // user does not want to shutdown
-    this.setState({ showModal: false});
+  handleClosePowerModal = () => {
+    this.setState({ powerAction: null });
   }
 
-  handleShutdown = () => {
-    // user does want to shutdown
-    this.setState({ showModal: false});
-    fetch('/api/shutdowncc', {
+  handlePowerAction = () => {
+    const action = this.state.powerAction;
+    this.setState({ powerAction: null });
+    fetch(action === 'reboot' ? '/api/rebootcc' : '/api/shutdowncc', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -274,7 +271,10 @@ class AboutPage extends basePage {
         <h2>Logs</h2>
         <p><Button size="sm" onClick={this.getlogs}>Download Logs</Button></p>
         <h2>Controls</h2>
-        <p><Button size="sm" onClick={this.confirmShutdown}>Shutdown Companion Computer</Button></p>
+        <p>
+          <Button size="sm" onClick={() => this.confirmPowerAction('shutdown')}>Shutdown Companion Computer</Button>{' '}
+          <Button size="sm" onClick={() => this.confirmPowerAction('reboot')}>Reboot Companion Computer</Button>
+        </p>
         <p><Button size="sm" variant="warning" onClick={this.confirmResetSettings}>Reset All Settings</Button></p>
         {this.state.resetMessage && (
           <div className="alert alert-info" role="alert">
@@ -282,18 +282,18 @@ class AboutPage extends basePage {
           </div>
         )}
 
-        <Modal show={this.state.showModal} onHide={this.handleCloseModal}>
+        <Modal show={this.state.powerAction !== null} onHide={this.handleClosePowerModal}>
           <Modal.Header closeButton>
-            <Modal.Title>Confirm Shutdown</Modal.Title>
+            <Modal.Title>{this.state.powerAction === 'reboot' ? 'Confirm Reboot' : 'Confirm Shutdown'}</Modal.Title>
           </Modal.Header>
 
           <Modal.Body>
-            <p>Are you sure you want to shutdown the Companion Computer?</p>
+            <p>Are you sure you want to {this.state.powerAction === 'reboot' ? 'reboot' : 'shutdown'} the Companion Computer?</p>
           </Modal.Body>
 
           <Modal.Footer>
-            <Button variant="secondary" onClick={this.handleShutdown}>Yes</Button>
-            <Button variant="primary" onClick={this.handleCloseModal}>No</Button>
+            <Button variant="secondary" onClick={this.handlePowerAction}>Yes</Button>
+            <Button variant="primary" onClick={this.handleClosePowerModal}>No</Button>
           </Modal.Footer>
         </Modal>
 

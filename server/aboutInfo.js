@@ -30,21 +30,19 @@ function getDiskInfo (callback) {
   })
 }
 
-/*function rebootCC () {
-  // reboot the companion computer
-  console.log('Reboot now')
-  exec('reboot', function (error, stdout, stderr) {
+function shutdownCC () {
+  console.log('Shutting down')
+  exec('sudo shutdown now', function (error, stdout) {
     if (error) {
       console.log(error)
     }
     console.log(stdout)
   })
-}*/
+}
 
-function shutdownCC () {
-  // shutdown the companion computer
-  console.log('Shutting down')
-  exec('sudo shutdown now', function (error, stdout) {
+function rebootCC () {
+  console.log('Rebooting')
+  exec('sudo shutdown -r now', function (error, stdout) {
     if (error) {
       console.log(error)
     }
@@ -131,4 +129,4 @@ function getsystemctllog(callback) {
   })
 }
 
-module.exports = { getSoftwareInfo, getHardwareInfo, getDiskInfo, shutdownCC, getsystemctllog }
+module.exports = { getSoftwareInfo, getHardwareInfo, getDiskInfo, shutdownCC, rebootCC, getsystemctllog }
