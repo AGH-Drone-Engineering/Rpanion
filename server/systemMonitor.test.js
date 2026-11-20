@@ -71,6 +71,62 @@ describe('SystemMonitor', function () {
     })
   })
 
+  describe('CPU usage', function () {
+    const cpu = (user, idle) => ({ times: { user, nice: 0, sys: 0, idle, irq: 0 } })
+    const feed = (snapshots) => {
+      let k = 0
+      return () => snapshots[Math.min(k++, snapshots.length - 1)]
+    }
+
+    it('computes overall and per-core usage from consecutive snapshots', function () {
+      const mon = makeMonitor({
+        cpusFn: feed([
+          [cpu(100, 900), cpu(100, 900)],
+          [cpu(200, 1000), cpu(100, 1100)]
+        ])
+      })
+      const first = mon.sample()
+      assert.equal(first.cpuPercent, null)
+      assert.equal(first.cpuCores, null)
+      const s = mon.sample()
+      assert.equal(s.cpuPercent, 25)
+      assert.deepEqual(s.cpuCores, [50, 0])
+      assert.deepEqual(mon.getHistory().samples.map(h => h.cpuPercent), [null, 25])
+      assert.deepEqual(mon.getHistory().samples[1].cpuCores, [50, 0])
+    })
+
+    it('restarts the baseline when the core count changes', function () {
+      const mon = makeMonitor({
+        cpusFn: feed([
+          [cpu(0, 0)],
+          [cpu(0, 0), cpu(0, 0)],
+          [cpu(50, 50), cpu(0, 100)]
+        ])
+      })
+      mon.sample()
+      assert.equal(mon.sample().cpuPercent, null)
+      assert.equal(mon.sample().cpuPercent, 25)
+    })
+
+    it('returns null when CPU times are unavailable', function () {
+      const mon = makeMonitor({ cpusFn: () => [] })
+      mon.sample()
+      const s = mon.sample()
+      assert.equal(s.cpuPercent, null)
+      assert.equal(s.cpuCores, null)
+    })
+
+    it('reports real per-core usage on this host', function () {
+      const mon = makeMonitor()
+      mon.sample()
+      const busyUntil = Date.now() + 50
+      while (Date.now() < busyUntil);
+      const s = mon.sample()
+      assert.equal(s.cpuCores.length, os.cpus().length)
+      assert.ok(s.cpuPercent >= 0 && s.cpuPercent <= 100)
+    })
+  })
+
   describe('#getHistory()', function () {
     it('keeps only the last `capacity` samples in chronological order', function () {
       const mon = makeMonitor({ capacity: 3 })

@@ -9,7 +9,8 @@ const isValue = v => v !== null && v !== undefined && Number.isFinite(v)
 // Line chart of the last `capacity` values, right-aligned so the newest value
 // is always at the right edge. null values break the line.
 // yTicks: values on the [yMin, yMax] scale; xTicks: [{ back: samples before newest, label }]
-function Sparkline ({ values, capacity, yMin, yMax, yTicks = [], xTicks = [], formatY = String, color = 'currentColor', label }) {
+// compact: smaller variant for per-core charts
+function Sparkline ({ values, capacity, yMin, yMax, yTicks = [], xTicks = [], formatY = String, color = 'currentColor', label, compact = false }) {
   const range = yMax - yMin || 1
   const step = WIDTH / Math.max(capacity - 1, 1)
   const yPos = v => HEIGHT - ((Math.min(Math.max(v, yMin), yMax) - yMin) / range) * HEIGHT
@@ -29,7 +30,7 @@ function Sparkline ({ values, capacity, yMin, yMax, yTicks = [], xTicks = [], fo
   if (current.length) segments.push(current)
 
   return (
-    <div className="sparkline">
+    <div className={compact ? 'sparkline sparkline-compact' : 'sparkline'}>
       <div className="sparkline-y">
         {yTicks.map(t => (
           <span key={t} style={{ top: `${(yPos(t) / HEIGHT) * 100}%` }}>{formatY(t)}</span>
@@ -69,7 +70,8 @@ Sparkline.propTypes = {
   xTicks: PropTypes.arrayOf(PropTypes.shape({ back: PropTypes.number, label: PropTypes.string })),
   formatY: PropTypes.func,
   color: PropTypes.string,
-  label: PropTypes.string
+  label: PropTypes.string,
+  compact: PropTypes.bool
 }
 
 export default Sparkline
