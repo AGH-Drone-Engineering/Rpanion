@@ -1114,6 +1114,10 @@ app.post('/api/shutdowncc', authenticateToken, function () {
   aboutPage.shutdownCC()
 })
 
+app.post('/api/rebootcc', authenticateToken, function () {
+  aboutPage.rebootCC()
+})
+
 app.post('/api/resetsettings', authenticateToken, function (req, res) {
   // User wants to reset all settings to defaults
   try {
