@@ -76,6 +76,9 @@ function DeviceNameSection({ token }) {
             Save
           </Button>
         </div>
+        <Form.Text className="text-muted">
+          System hostname; also the mDNS address{current && <> <b>{current}.local</b></>}
+        </Form.Text>
       </Form.Group>
       {saved && (
         <Alert variant="success" className="mt-2">
